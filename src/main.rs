@@ -1,5 +1,7 @@
 extern crate libc;
 use std::mem;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // Read these document before develpment.
 // https://doc.rust-jp.rs/rust-nomicon-ja/meet-safe-and-unsafe.html
@@ -25,8 +27,16 @@ fn main() {
         libc::bind(fd, &addr, addr_size);
         libc::listen(fd, 10);
 
-        // Accept
-        loop {
+        // Signal Handling
+        // https://docs.rs/signal-hook/latest/signal_hook/
+        let term = Arc::new(AtomicBool::new(false));
+        match signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term)) {
+            Ok(_) => {},
+            Err(e) => panic!("Error: {}", e),
+        };
+
+        while !term.load(Ordering::Relaxed) {
+            // Accept
             let accept_fd = libc::accept(fd,  &mut addr, &mut addr_size);
             match accept_fd {
                 -1 => {
@@ -49,13 +59,10 @@ fn main() {
                     println!("Send: {}", &send_str);
 
                     libc::write(accept_fd, send_buf.as_mut_ptr() as *mut libc::c_void, send_buf.len());
-                    break;
                 }
             }
         }
-
-        // Shutdown
-
+        println!("End Server!");
         // Close
         libc::close(fd);
     }
