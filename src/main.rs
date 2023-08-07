@@ -43,10 +43,14 @@ fn main() {
     };
 
     // Initialize epoll
-    // fdがread可能になるまで
+    // fdがread可能かどうか監視する
+    // epoll_createとepoll_create1が存在しているが大きな違いは無い
     let epoll_fd = unsafe {
         libc::epoll_create1(0)
     };
+
+    // epoll_ctlでfdを監視対象に加える
+    // epoll_waitでイベントを検知した際に, ここで渡したものと同じ値を受け取ることができる
     let mut event = libc::epoll_event {
         events: libc::EPOLLIN as u32,
         u64: fd as u64,
@@ -57,7 +61,6 @@ fn main() {
     let mut events = unsafe {
         vec![mem::zeroed::<libc::epoll_event>(); 1024]
     };
-
     while !term.load(Ordering::Relaxed) {
         let events_num = unsafe {
             libc::epoll_wait(epoll_fd, events.as_mut_ptr(), 1024, 100)
