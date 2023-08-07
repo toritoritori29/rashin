@@ -24,12 +24,30 @@ Day1では非常にシンプルな機能のみを持つサーバーを構築す�
 ## 試してみる
 このプロジェクトではpythonを使ってe2eテストを実装する。
 以下のコマンドで依存関係をインストールしてテストを実行する。
-テストの実態はtests/以下に存在している。
 
 ``` python
 poetry install
 poetry run pytest
 ```
 
+テストはtests/以下に存在していて、今回動かしたテストは正しく204を返すかどうか検証するものだ。
+``` python
+import subprocess
+import requests
+import time
+import pytest
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_server():
+    process = subprocess.Popen("cargo run", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1)
+    yield
+    process.kill()
+
+
+def test_204():
+    resp = requests.get("http://localhost:8080/")
+    assert resp.status_code == 204
+```
 
 ## 参考文献

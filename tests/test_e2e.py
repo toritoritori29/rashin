@@ -11,6 +11,6 @@ def setup_server():
     process.kill()
 
 
-def test_e2e():
+def test_204():
     resp = requests.get("http://localhost:8080/")
     assert resp.status_code == 204
