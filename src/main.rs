@@ -24,7 +24,7 @@ fn main() {
     println!("Start Server!");
     let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
     let mut addr = unsafe { mem::transmute::<libc::sockaddr_in, libc::sockaddr>(addr) };
-    let mut addr_size = mem::size_of::<libc::sockaddr>() as u32;
+    let addr_size = mem::size_of::<libc::sockaddr>() as u32;
 
     //Bind and Listen
     // https://linuxjm.osdn.jp/html/LDP_man-pages/man2/listen.2.html
@@ -42,31 +42,57 @@ fn main() {
         Err(e) => panic!("Error: {}", e),
     };
 
-    while !term.load(Ordering::Relaxed) {
-        let accept_fd = unsafe {
-            libc::accept(fd, &mut addr, &mut addr_size)
-        };
-
-        if accept_fd == -1 {
-            println!("Error");
-            continue;
-        }
-        // Read
-        println!("Accept");
-        let mut buf = [0 as u8; 1024];
-        read(accept_fd, &mut buf).unwrap();
-        println!("Read");
-        let s = String::from_utf8_lossy(&buf);
-        println!("Recv: {}", s);
-
-        let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
-        let mut send_buf = send_str.clone().into_bytes();
-        println!("Send: {}", &send_str);
-        write(accept_fd, &mut send_buf).unwrap();
-        shutdown(accept_fd);
+    // Initialize epoll
+    // fdがread可能になるまで
+    let epoll_fd = unsafe {
+        libc::epoll_create1(0)
+    };
+    let mut event = libc::epoll_event {
+        events: libc::EPOLLIN as u32,
+        u64: fd as u64,
+    };
+    unsafe {
+        libc::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, &mut event);
     }
-    // Close
+    let mut events = unsafe {
+        vec![mem::zeroed::<libc::epoll_event>(); 1024]
+    };
 
+    while !term.load(Ordering::Relaxed) {
+        let events_num = unsafe {
+            libc::epoll_wait(epoll_fd, events.as_mut_ptr(), 1024, 100)
+        };
+        if events_num == -1 {
+            println!("Error");
+        }
+
+        for n in 0..events_num {
+            let active_fd = events[n as usize].u64;
+            println!("Event: {}", active_fd);
+            if active_fd as i32 == fd {
+                let accept_fd = accept(fd, &mut addr);
+                if accept_fd == -1 {
+                    println!("Error");
+                    continue;
+                }
+                // Read
+                println!("Accept");
+                let mut buf = [0 as u8; 1024];
+                read(accept_fd, &mut buf).unwrap();
+                println!("Read");
+                let s = String::from_utf8_lossy(&buf);
+                println!("Recv: {}", s);
+
+                let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
+                let mut send_buf = send_str.clone().into_bytes();
+                println!("Send: {}", &send_str);
+                write(accept_fd, &mut send_buf).unwrap();
+                shutdown(accept_fd);
+            }
+        } 
+    }
+
+    // Close
     println!("End Server!");
     unsafe {
         libc::close(fd);
@@ -99,6 +125,16 @@ fn write(fd: i32, buf: &mut [u8]) -> io::Result<&[u8]> {
     let size =
         unsafe { libc::write(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) as usize };
     Ok(&buf[..size])
+}
+
+
+
+fn accept(fd: i32, addr: &mut libc::sockaddr) -> i32{
+    let mut addr_size = mem::size_of::<libc::sockaddr>() as u32;
+    let accept_fd = unsafe {
+        libc::accept(fd, addr, &mut addr_size)
+    };
+    accept_fd
 }
 
 /// Socketを閉じる
