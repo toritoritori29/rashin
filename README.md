@@ -8,6 +8,7 @@
 
 
 ## 開発環境のセットアップ
-mac, windows上で開発するにはDockerを利用して
+mac, windows上で開発しやすいように`.devcontainer`に開発環境用のコンテナの設定を記載してある.
+vscodeのremote-container拡張機能を利用して当該コンテナを開けば, linux環境でなくても開発・動作検証を行うことができる.
 
 

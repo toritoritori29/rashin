@@ -42,7 +42,7 @@ pub fn listen(fd: fd::RawFd, backlog: i32) -> Result<(), RashinErr> {
 pub fn read(fd: i32, buf: &mut [u8]) -> Result<(), RashinErr> {
     let size = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
     println!("buf: {:?}", size);
-    if size < 0 {
+    if size == -1 {
         return Err(RashinErr::SyscallError);
     }
     Ok(())
@@ -55,8 +55,7 @@ pub fn read(fd: i32, buf: &mut [u8]) -> Result<(), RashinErr> {
 /// 参考1. Manpage
 /// https://linuxjm.osdn.jp/html/LDP_man-pages/man2/send.2.html
 pub fn write(fd: i32, buf: &mut [u8]) -> Result<&[u8], RashinErr> {
-    let size =
-        unsafe { libc::write(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+    let size = unsafe { libc::write(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
     if size == -1 {
         return Err(RashinErr::SyscallError);
     }
@@ -90,7 +89,7 @@ pub fn shutdown(fd: i32) -> Result<(), RashinErr> {
     Ok(())
 }
 
-pub fn epoll_create() -> Result<fd::RawFd, RashinErr>{
+pub fn epoll_create() -> Result<fd::RawFd, RashinErr> {
     // Initialize epoll
     // fdがread可能かどうか監視する
     // epoll_createとepoll_create1が存在しているが大きな違いは無い
@@ -99,4 +98,31 @@ pub fn epoll_create() -> Result<fd::RawFd, RashinErr>{
         return Err(RashinErr::SyscallError);
     }
     Ok(epoll_fd)
+}
+
+pub fn epoll_ctl(
+    epoll_fd: fd::RawFd,
+    op_type: libc::c_int,
+    target_fd: fd::RawFd,
+    event: &mut libc::epoll_event,
+) -> Result<(), RashinErr> {
+    let error_code = unsafe { libc::epoll_ctl(epoll_fd, op_type, target_fd, event) };
+    if error_code == -1 {
+        return Err(RashinErr::SyscallError);
+    }
+    Ok(())
+}
+
+pub fn epoll_wait(
+    epoll_fd: fd::RawFd,
+    events: &mut [libc::epoll_event],
+    max_events_size: i32,
+    timeout: i32,
+) -> Result<usize, RashinErr> {
+    let events_num =
+        unsafe { libc::epoll_wait(epoll_fd, events.as_mut_ptr(), max_events_size, timeout) };
+    if events_num == -1 {
+        return Err(RashinErr::SyscallError);
+    }
+    Ok(events_num as usize)
 }

@@ -12,6 +12,9 @@ use std::sync::Arc;
 // * Deal Unsafe Rust
 // https://doc.rust-jp.rs/rust-nomicon-ja/meet-safe-and-unsafe.html
 
+const MAX_EVENTS_SIZE: i32 = 1024;
+const TIMEOUT_CLOCKS: i32 = 100;
+
 fn main() {
     let addr = libc::sockaddr_in {
         sin_family: libc::AF_INET as u16,
@@ -49,15 +52,11 @@ fn main() {
         events: libc::EPOLLIN as u32,
         u64: fd as u64,
     };
-    unsafe {
-        libc::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, &mut event);
-    }
-    let mut events = unsafe { vec![mem::zeroed::<libc::epoll_event>(); 1024] };
+    syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, &mut event).unwrap();
+    let mut events = unsafe { vec![mem::zeroed::<libc::epoll_event>(); MAX_EVENTS_SIZE as usize] };
     while !term.load(Ordering::Relaxed) {
-        let events_num = unsafe { libc::epoll_wait(epoll_fd, events.as_mut_ptr(), 1024, 100) };
-        if events_num == -1 {
-            println!("Error");
-        }
+        let events_num =
+            syscall::epoll_wait(epoll_fd, &mut events, MAX_EVENTS_SIZE, TIMEOUT_CLOCKS).unwrap();
 
         for n in 0..events_num {
             let active_fd = events[n as usize].u64;
