@@ -1,7 +1,9 @@
-extern crate libc;
+mod syscall;
+use libc;
+
+use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::{io, mem};
 
 // Read these document before develpment.
 // * Nginx Development Guide
@@ -9,7 +11,6 @@ use std::{io, mem};
 
 // * Deal Unsafe Rust
 // https://doc.rust-jp.rs/rust-nomicon-ja/meet-safe-and-unsafe.html
-
 
 fn main() {
     let addr = libc::sockaddr_in {
@@ -22,16 +23,14 @@ fn main() {
     };
 
     println!("Start Server!");
-    let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
+    // let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
+    let fd = syscall::socket().unwrap();
     let mut addr = unsafe { mem::transmute::<libc::sockaddr_in, libc::sockaddr>(addr) };
-    let addr_size = mem::size_of::<libc::sockaddr>() as u32;
 
     //Bind and Listen
     // https://linuxjm.osdn.jp/html/LDP_man-pages/man2/listen.2.html
-    unsafe {
-        libc::bind(fd, &addr, addr_size);
-        libc::listen(fd, 10);
-    }
+    syscall::bind(fd, &addr).unwrap();
+    syscall::listen(fd, 10).unwrap();
 
     // Signal Handling
     // アトミック変数を用いてSIGINTが発生したか(Ctrl-Cが押されたか)を判定する
@@ -42,12 +41,7 @@ fn main() {
         Err(e) => panic!("Error: {}", e),
     };
 
-    // Initialize epoll
-    // fdがread可能かどうか監視する
-    // epoll_createとepoll_create1が存在しているが大きな違いは無い
-    let epoll_fd = unsafe {
-        libc::epoll_create1(0)
-    };
+    let epoll_fd = syscall::epoll_create().unwrap();
 
     // epoll_ctlでfdを監視対象に加える
     // epoll_waitでイベントを検知した際に, ここで渡したものと同じ値を受け取ることができる
@@ -58,13 +52,9 @@ fn main() {
     unsafe {
         libc::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, &mut event);
     }
-    let mut events = unsafe {
-        vec![mem::zeroed::<libc::epoll_event>(); 1024]
-    };
+    let mut events = unsafe { vec![mem::zeroed::<libc::epoll_event>(); 1024] };
     while !term.load(Ordering::Relaxed) {
-        let events_num = unsafe {
-            libc::epoll_wait(epoll_fd, events.as_mut_ptr(), 1024, 100)
-        };
+        let events_num = unsafe { libc::epoll_wait(epoll_fd, events.as_mut_ptr(), 1024, 100) };
         if events_num == -1 {
             println!("Error");
         }
@@ -73,7 +63,7 @@ fn main() {
             let active_fd = events[n as usize].u64;
             println!("Event: {}", active_fd);
             if active_fd as i32 == fd {
-                let accept_fd = accept(fd, &mut addr);
+                let accept_fd = syscall::accept(fd, &mut addr).unwrap();
                 if accept_fd == -1 {
                     println!("Error");
                     continue;
@@ -81,7 +71,7 @@ fn main() {
                 // Read
                 println!("Accept");
                 let mut buf = [0 as u8; 1024];
-                read(accept_fd, &mut buf).unwrap();
+                syscall::read(accept_fd, &mut buf).unwrap();
                 println!("Read");
                 let s = String::from_utf8_lossy(&buf);
                 println!("Recv: {}", s);
@@ -89,10 +79,10 @@ fn main() {
                 let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
                 let mut send_buf = send_str.clone().into_bytes();
                 println!("Send: {}", &send_str);
-                write(accept_fd, &mut send_buf).unwrap();
-                shutdown(accept_fd);
+                syscall::write(accept_fd, &mut send_buf).unwrap();
+                syscall::shutdown(accept_fd).unwrap();
             }
-        } 
+        }
     }
 
     // Close
@@ -100,56 +90,4 @@ fn main() {
     unsafe {
         libc::close(fd);
     }
-}
-
-/// SocketからデータをBufferに読み込む
-/// データを読み込むためにはread, recv, recvfrom, recvmsgなどのシステムコールを使用することができる
-/// メッセージがBufferのサイズを超える場合は、メッセージが切り捨てられる
-///
-/// 参考1. Rust本体のTcpListener周りの実装
-/// https://github.com/rust-lang/rust/blob/11467b1c2a56bd2fd8272a7413190c814cfcba1f/library/std/src/sys/unix/net.rs#L260
-fn read(fd: i32, buf: &mut [u8]) -> io::Result<()> {
-    let size = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-    println!("buf: {:?}", size);
-    if size > 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
-
-/// Socketにデータを書き込む
-/// データを書き込むためにはwrite, send, sendto, sendmsgなどのシステムコールを使用することができる
-/// 現時点ではwriteで十分なのでwriteを使用する
-/// 
-/// 参考1. Manpage
-/// https://linuxjm.osdn.jp/html/LDP_man-pages/man2/send.2.html
-fn write(fd: i32, buf: &mut [u8]) -> io::Result<&[u8]> {
-    let size =
-        unsafe { libc::write(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) as usize };
-    Ok(&buf[..size])
-}
-
-
-
-fn accept(fd: i32, addr: &mut libc::sockaddr) -> i32{
-    let mut addr_size = mem::size_of::<libc::sockaddr>() as u32;
-    let accept_fd = unsafe {
-        libc::accept(fd, addr, &mut addr_size)
-    };
-    accept_fd
-}
-
-/// Socketを閉じる
-/// 
-/// manpageによるとlibc::shutdownの引数は以下の3種類を利用することができる.
-/// * SHUT_RD: 読み込みを禁止する
-/// * SHUT_WR: 書き込みを禁止する
-/// 参考1. Rust本体のTcpListener周りの関連実装
-/// https://github.com/rust-lang/rust/blob/11467b1c2a56bd2fd8272a7413190c814cfcba1f/library/std/src/sys/unix/net.rs#L379
-/// 
-/// 参考2. Manpage
-/// https://linuxjm.osdn.jp/html/LDP_man-pages/man2/shutdown.2.html
-fn shutdown(fd: i32) {
-    unsafe { libc::shutdown(fd, libc::SHUT_WR) };
 }
