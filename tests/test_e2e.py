@@ -18,7 +18,7 @@ def test_204():
         resp = requests.get(url)
         return resp.status_code == 204
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         args = ["http://localhost:8080/"] * 100
         results = list(executor.map(test_func, args))
         assert all(results)

@@ -15,6 +15,7 @@ use std::sync::Arc;
 const MAX_EVENTS_SIZE: i32 = 1024;
 const TIMEOUT_CLOCKS: i32 = 100;
 
+
 fn main() {
     let addr = libc::sockaddr_in {
         sin_family: libc::AF_INET as u16,
@@ -52,7 +53,7 @@ fn main() {
         events: libc::EPOLLIN as u32,
         u64: fd as u64,
     };
-    syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, &mut event).unwrap();
+    syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, Some(&mut event)).unwrap();
     let mut events = unsafe { vec![mem::zeroed::<libc::epoll_event>(); MAX_EVENTS_SIZE as usize] };
     while !term.load(Ordering::Relaxed) {
         let events_num =
@@ -67,9 +68,19 @@ fn main() {
                     println!("Error");
                     continue;
                 }
-                // Read
-                println!("Accept");
+                println!("Accept connection. Prepare a file descriptor {} for this connection.", $accept_fd);
+                // Register to epoll
+                let mut connection_event = libc::epoll_event {
+                    events: libc::EPOLLIN as u32,
+                    u64: epoll_fd as u64,
+                };
+                syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, accept_fd, Some(&mut connection_event)).unwrap();
+            } else {
+                let accept_fd = active_fd as i32;
                 let mut buf = [0 as u8; 1024];
+
+                // Read
+                println!("Get ready to read from {}.", &accept_fd);
                 syscall::read(accept_fd, &mut buf).unwrap();
                 println!("Read");
                 let s = String::from_utf8_lossy(&buf);
@@ -80,6 +91,7 @@ fn main() {
                 println!("Send: {}", &send_str);
                 syscall::write(accept_fd, &mut send_buf).unwrap();
                 syscall::shutdown(accept_fd).unwrap();
+                syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_DEL, accept_fd, None).unwrap();
             }
         }
     }

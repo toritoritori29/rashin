@@ -104,9 +104,12 @@ pub fn epoll_ctl(
     epoll_fd: fd::RawFd,
     op_type: libc::c_int,
     target_fd: fd::RawFd,
-    event: &mut libc::epoll_event,
+    event: Option<&mut libc::epoll_event>,
 ) -> Result<(), RashinErr> {
-    let error_code = unsafe { libc::epoll_ctl(epoll_fd, op_type, target_fd, event) };
+    let error_code = match event {
+        Some(event) => unsafe { libc::epoll_ctl(epoll_fd, op_type, target_fd, event) }
+        None => unsafe { libc::epoll_ctl(epoll_fd, op_type, target_fd, std::ptr::null_mut()) }
+    };
     if error_code == -1 {
         return Err(RashinErr::SyscallError);
     }
