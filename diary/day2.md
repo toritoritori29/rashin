@@ -1,4 +1,4 @@
-# Day2 epollによるnon-blocking ioの実装 
+# Day2 epollによるイベント駆動型の実装 
 
 ## 目標
 * epollを使ってacceptが処理をブロックしないようにする
