@@ -2,8 +2,10 @@ mod syscall;
 use libc;
 
 use std::mem;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
+use std::os::fd;
 
 // Read these document before develpment.
 // * Nginx Development Guide
@@ -15,6 +17,27 @@ use std::sync::Arc;
 const MAX_EVENTS_SIZE: i32 = 1024;
 const TIMEOUT_CLOCKS: i32 = 100;
 
+struct Connection {
+    pub wait_for_read: bool,
+    pub wait_for_write: bool
+}
+
+impl Connection {
+    pub fn WaitForRead(fd: fd::RawFd) -> Connection{
+        Connection {
+            fd: fd,
+            wait_for_read: true,
+            wait_for_write: false
+        }
+    }
+
+    pub fn WaitForWrite(fd: fd::RawFd) -> Connection{
+        Connection {
+            wait_for_read: false,
+            wait_for_write: true
+        }
+    }
+}
 
 fn main() {
     let addr = libc::sockaddr_in {
@@ -55,6 +78,8 @@ fn main() {
     };
     syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, fd, Some(&mut event)).unwrap();
     let mut events = unsafe { vec![mem::zeroed::<libc::epoll_event>(); MAX_EVENTS_SIZE as usize] };
+    let event_map: HashMap<fd::RawFd, Connection> = HashMap::new();
+
     while !term.load(Ordering::Relaxed) {
         let events_num =
             syscall::epoll_wait(epoll_fd, &mut events, MAX_EVENTS_SIZE, TIMEOUT_CLOCKS).unwrap();
@@ -68,31 +93,36 @@ fn main() {
                     println!("Error");
                     continue;
                 }
-                println!("Accept connection. Prepare a file descriptor {} for this connection.", $accept_fd);
+                println!("Accept connection. Prepare a file descriptor {} for this connection.", &accept_fd);
                 // Register to epoll
                 let mut connection_event = libc::epoll_event {
                     events: libc::EPOLLIN as u32,
                     u64: epoll_fd as u64,
                 };
+                Connection::WaitForRead()
                 syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, accept_fd, Some(&mut connection_event)).unwrap();
-            } else {
-                let accept_fd = active_fd as i32;
-                let mut buf = [0 as u8; 1024];
-
-                // Read
-                println!("Get ready to read from {}.", &accept_fd);
-                syscall::read(accept_fd, &mut buf).unwrap();
-                println!("Read");
-                let s = String::from_utf8_lossy(&buf);
-                println!("Recv: {}", s);
-
-                let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
-                let mut send_buf = send_str.clone().into_bytes();
-                println!("Send: {}", &send_str);
-                syscall::write(accept_fd, &mut send_buf).unwrap();
-                syscall::shutdown(accept_fd).unwrap();
-                syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_DEL, accept_fd, None).unwrap();
+                continue;
             }
+            let accept_fd = active_fd as fd::RawFd;
+            let event = event_map.get(&accept_fd);
+            if let None = event {
+                continue;
+            }
+            let mut buf = [0 as u8; 1024];
+
+            // Read
+            println!("Get ready to read from {}.", &accept_fd);
+            syscall::read(accept_fd, &mut buf).unwrap();
+            println!("Read");
+            let s = String::from_utf8_lossy(&buf);
+            println!("Recv: {}", s);
+
+            let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
+            let mut send_buf = send_str.clone().into_bytes();
+            println!("Send: {}", &send_str);
+            syscall::write(accept_fd, &mut send_buf).unwrap();
+            syscall::shutdown(accept_fd).unwrap();
+            syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_DEL, accept_fd, None).unwrap();
         }
     }
 
