@@ -1,4 +1,6 @@
 mod syscall;
+mod core;
+
 use libc;
 
 use std::mem;
@@ -6,6 +8,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
 use std::os::fd;
+
+use crate::core::{Event, EventState, init_http_event};
 
 // Read these document before develpment.
 // * Nginx Development Guide
@@ -16,31 +20,6 @@ use std::os::fd;
 
 const MAX_EVENTS_SIZE: i32 = 1024;
 const TIMEOUT_CLOCKS: i32 = 100;
-
-#[derive(Clone)]
-struct Event {
-    pub fd: fd::RawFd,
-    pub wait_for_read: bool,
-    pub wait_for_write: bool
-}
-
-impl Event {
-    pub fn init_read_event(fd: fd::RawFd) -> Event{
-        Event {
-            fd,
-            wait_for_read: true,
-            wait_for_write: false
-        }
-    }
-
-    pub fn init_write_event(fd: fd::RawFd) -> Event{
-        Event {
-            fd,
-            wait_for_read: false,
-            wait_for_write: true
-        }
-    }
-}
 
 fn main() {
     let addr = libc::sockaddr_in {
@@ -111,7 +90,7 @@ fn main() {
                     u64: accept_fd as u64,
                 };
                 syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, accept_fd, Some(&mut epoll_event)).unwrap();
-                let event = Event::init_read_event(accept_fd);
+                let event = init_http_event();
                 event_map.insert(accept_fd, event);
                 continue;
             }
@@ -121,38 +100,33 @@ fn main() {
             println!("Flags: {}", flags as i32);
             let event_option = event_map.get(&event_fd).cloned();
 
-            if let Some(event) = event_option {
-                // Process Read Event
+            if let Some(mut event) = event_option {
                 let is_readable = (flags & libc::EPOLLIN) > 0;
                 println!("Read Flag{}", flags & libc::EPOLLIN);
-                if is_readable && event.wait_for_read {
-                    let mut buf = [0 as u8; 1024];
-                    println!("Get ready to read from {}.", &event_fd);
-                    syscall::read(event_fd, &mut buf).unwrap();
-                    let s = String::from_utf8_lossy(&buf);
-                    println!("Recv: {}", s);
 
-                    // Wait until the write event is ready.
-                    let write_event = Event::init_write_event(event_fd);
-                    event_map.insert(event_fd, write_event);
-                    let mut epoll_event = libc::epoll_event {
-                        events: libc::EPOLLOUT as u32,
-                        u64: event_fd as u64,
-                    };
-                    syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_MOD, event_fd, Some(&mut epoll_event)).unwrap();
+                if is_readable & event.is_ready() { 
+                    event.readable = true;
+                    // event_map.insert(event_fd, write_event);
+                    // let mut epoll_event = libc::epoll_event {
+                    //     events: libc::EPOLLOUT as u32,
+                    //     u64: event_fd as u64,
+                    // };
+                    // syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_MOD, event_fd, Some(&mut epoll_event)).unwrap();
                 }
 
                 // Process Write Event
                 let is_writable = (flags & libc::EPOLLOUT) > 0;
-                if is_writable & event.wait_for_write {
-                    let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
-                    let mut send_buf = send_str.clone().into_bytes();
-                    println!("Send: {}", &send_str);
-                    syscall::write(event_fd, &mut send_buf).unwrap();
+                if is_writable & event.is_ready() {
+                    event.writable = true;
+                }
+
+                (event.handler)(event_fd, &mut event);
+                if let EventState::Shutdown = event.state {
+                    println!("Shutdown");
                     syscall::shutdown(event_fd).unwrap();
                     syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_DEL, event_fd, None).unwrap();
-                    continue;
                 }
+
             } else {
                 // Something wrong
                 println!("Something wrong");
