@@ -8,8 +8,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
 use std::os::fd;
+use std::rc::Rc;
 
-use crate::core::{Event, EventState, init_http_event};
+use crate::core::{Connection, Event, EventState, init_http_event};
 
 // Read these document before develpment.
 // * Nginx Development Guide
@@ -86,32 +87,31 @@ fn main() {
                 }
                 println!("Accept connection. Prepare a file descriptor {} for this connection.", &accept_fd);
                 let mut epoll_event = libc::epoll_event {
-                    events: libc::EPOLLIN as u32,
+                    events: (libc::EPOLLIN | libc::EPOLLOUT) as u32,
                     u64: accept_fd as u64,
                 };
                 syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, accept_fd, Some(&mut epoll_event)).unwrap();
-                let event = init_http_event();
+                
+                let connection = Connection::new(accept_fd);
+                let event = init_http_event(connection);
                 event_map.insert(accept_fd, event);
+                println!("event: {}", accept_fd as i32);
                 continue;
             }
 
             // Pop event from the event_map
             let flags = events_buffer[n].events as i32;
             println!("Flags: {}", flags as i32);
+
+            // 今のままだとBufferなどもコピーされるのであんまりよくない
             let event_option = event_map.get(&event_fd).cloned();
 
             if let Some(mut event) = event_option {
                 let is_readable = (flags & libc::EPOLLIN) > 0;
-                println!("Read Flag{}", flags & libc::EPOLLIN);
 
                 if is_readable & event.is_ready() { 
                     event.readable = true;
-                    // event_map.insert(event_fd, write_event);
-                    // let mut epoll_event = libc::epoll_event {
-                    //     events: libc::EPOLLOUT as u32,
-                    //     u64: event_fd as u64,
-                    // };
-                    // syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_MOD, event_fd, Some(&mut epoll_event)).unwrap();
+
                 }
 
                 // Process Write Event
