@@ -1,15 +1,18 @@
+
+/// Core.rs
+/// このモジュールではrashinの基本的な構造体の定義と, イベントハンドラの定義を行う
+/// 
+
+use crate::syscall::{self, RashinErr};
 use std::os::fd::RawFd;
-use std::rc::{Rc, Weak};
-use crate::syscall;
 
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum EventState {
     Ready,
     Shutdown,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Event {
     pub readable: bool,
     pub writable: bool,
@@ -27,8 +30,7 @@ impl Event {
     }
 }
 
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Connection {
     pub fd: RawFd,
     pub buf: Vec<u8>,
@@ -38,18 +40,18 @@ impl Connection {
     pub fn new(fd: RawFd) -> Connection {
         Connection {
             fd: fd,
-            buf: Vec::new(),
+            buf: vec![0 as u8; 1024]
         }
     }
 }
 
-pub fn init_http_event(connection: Connection) -> Event{
+pub fn init_http_event(connection: Connection) -> Event {
     Event {
         readable: false,
         writable: false,
         state: EventState::Ready,
         handler: http_handler,
-        connection: Some(connection)
+        connection: Some(connection),
     }
 }
 
@@ -58,13 +60,25 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
         println!("Not ready");
         return;
     }
-    if !event.readable || !event.writable {
+
+    if !(event.readable && event.writable) {
         return;
     }
     println!("Get ready to read from {}.", &fd);
     if let Some(connection) = &mut event.connection {
-        syscall::read(fd, &mut connection.buf).unwrap();
-        let s = String::from_utf8_lossy(&connection.buf);
+
+        let read_option = syscall::read(fd, &mut connection.buf);
+        let size = match read_option {
+            Ok(size) => size as usize,
+            Err(RashinErr::SyscallError(syscall::EAGAIN)) => {
+                event.readable = false;
+                return;
+            },
+            Err(e) => {
+                panic!("Error: {}", e);
+            },
+        };
+        let s  = String::from_utf8_lossy(&connection.buf[..size]);
         println!("Recv: {}", s);
 
         // Process Write Event
@@ -81,6 +95,7 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
         // };
         // syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_MOD, event_fd, Some(&mut epoll_event)).unwrap();
         event.state = EventState::Shutdown;
-    } 
+    } else {
+        println!("Connection is None.");
+    }
 }
-

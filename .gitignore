@@ -3,3 +3,4 @@
 .pytest_cache
 .venv
 __pycache__
+dump.txt

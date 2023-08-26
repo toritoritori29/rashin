@@ -1,16 +1,16 @@
-mod syscall;
 mod core;
+mod syscall;
 
 use libc;
 
-use std::mem;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
+use std::mem;
 use std::os::fd;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use crate::core::{Connection, Event, EventState, init_http_event};
+use crate::core::{init_http_event, Connection, Event, EventState};
 
 // Read these document before develpment.
 // * Nginx Development Guide
@@ -58,16 +58,27 @@ fn main() {
         events: libc::EPOLLIN as u32,
         u64: listener_fd as u64,
     };
+    println!("listner flag {}", (libc::EPOLLET | libc::EPOLLIN) as u32);
     syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, listener_fd, Some(&mut event)).unwrap();
-    let mut events_buffer = unsafe { vec![mem::zeroed::<libc::epoll_event>(); MAX_EVENTS_SIZE as usize] };
+    let mut events_buffer =
+        unsafe { vec![mem::zeroed::<libc::epoll_event>(); MAX_EVENTS_SIZE as usize] };
     let mut event_map: HashMap<fd::RawFd, Event> = HashMap::new();
 
     while !term.load(Ordering::Relaxed) {
         // epollにeventが入ってくるまで待機
-        let wait_result =
-            syscall::epoll_wait(epoll_fd, &mut events_buffer, MAX_EVENTS_SIZE, TIMEOUT_CLOCKS);
+        println!("Wait for epoll event");
+        let wait_result = syscall::epoll_wait(
+            epoll_fd,
+            &mut events_buffer,
+            MAX_EVENTS_SIZE,
+            TIMEOUT_CLOCKS,
+        );
         let events_num = match wait_result {
             Ok(n) => n,
+            Err(syscall::RashinErr::SyscallError(libc::EINTR)) => {
+                println!("Interrupted system call");
+                continue;
+            },
             Err(e) => {
                 println!("Error: {}", e);
                 continue;
@@ -85,17 +96,26 @@ fn main() {
                     println!("Error");
                     continue;
                 }
-                println!("Accept connection. Prepare a file descriptor {} for this connection.", &accept_fd);
+                println!(
+                    "Accept connection. Prepare a file descriptor {} for this connection.",
+                    &accept_fd
+                );
                 let mut epoll_event = libc::epoll_event {
-                    events: (libc::EPOLLIN | libc::EPOLLOUT) as u32,
+                    events: (libc::EPOLLET | libc::EPOLLIN | libc::EPOLLOUT) as u32,
                     u64: accept_fd as u64,
                 };
-                syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, accept_fd, Some(&mut epoll_event)).unwrap();
-                
+                syscall::epoll_ctl(
+                    epoll_fd,
+                    libc::EPOLL_CTL_ADD,
+                    accept_fd,
+                    Some(&mut epoll_event),
+                )
+                .unwrap();
+
+                syscall::fnctl(accept_fd).unwrap();
                 let connection = Connection::new(accept_fd);
                 let event = init_http_event(connection);
                 event_map.insert(accept_fd, event);
-                println!("event: {}", accept_fd as i32);
                 continue;
             }
 
@@ -109,9 +129,8 @@ fn main() {
             if let Some(mut event) = event_option {
                 let is_readable = (flags & libc::EPOLLIN) > 0;
 
-                if is_readable & event.is_ready() { 
+                if is_readable & event.is_ready() {
                     event.readable = true;
-
                 }
 
                 // Process Write Event
@@ -119,14 +138,13 @@ fn main() {
                 if is_writable & event.is_ready() {
                     event.writable = true;
                 }
-
                 (event.handler)(event_fd, &mut event);
                 if let EventState::Shutdown = event.state {
                     println!("Shutdown");
                     syscall::shutdown(event_fd).unwrap();
                     syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_DEL, event_fd, None).unwrap();
+                    syscall::close(event_fd).unwrap();
                 }
-
             } else {
                 // Something wrong
                 println!("Something wrong");
@@ -136,9 +154,8 @@ fn main() {
     }
 
     // Close
+    println!("Clean up resources");
+    syscall::close(epoll_fd).unwrap();
+    syscall::close(listener_fd).unwrap();
     println!("End Server!");
-    unsafe {
-        libc::close(epoll_fd);
-        libc::close(listener_fd);
-    }
 }
