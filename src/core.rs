@@ -1,8 +1,6 @@
-
 /// Core.rs
 /// このモジュールではrashinの基本的な構造体の定義と, イベントハンドラの定義を行う
-/// 
-
+///
 use crate::syscall::{self, RashinErr};
 use std::os::fd::RawFd;
 
@@ -40,7 +38,7 @@ impl Connection {
     pub fn new(fd: RawFd) -> Connection {
         Connection {
             fd: fd,
-            buf: vec![0 as u8; 1024]
+            buf: vec![0 as u8; 1024],
         }
     }
 }
@@ -66,19 +64,18 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
     }
     println!("Get ready to read from {}.", &fd);
     if let Some(connection) = &mut event.connection {
-
         let read_option = syscall::read(fd, &mut connection.buf);
         let size = match read_option {
             Ok(size) => size as usize,
-            Err(RashinErr::SyscallError(syscall::EAGAIN)) => {
+            Err(RashinErr::SyscallError(libc::EAGAIN)) => {
                 event.readable = false;
                 return;
-            },
+            }
             Err(e) => {
                 panic!("Error: {}", e);
-            },
+            }
         };
-        let s  = String::from_utf8_lossy(&connection.buf[..size]);
+        let s = String::from_utf8_lossy(&connection.buf[..size]);
         println!("Recv: {}", s);
 
         // Process Write Event

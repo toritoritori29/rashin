@@ -2,7 +2,9 @@ use std::mem;
 use std::os::fd::{self, AsRawFd};
 use thiserror::Error;
 
-pub const EAGAIN: i32 = libc::EAGAIN;
+/// syscall.rs
+/// libcをsafeに使うためのユーティリティ関数.
+/// 原則としてシステムコールに対応した名称の関数を定義する.
 
 #[derive(Debug, Error)]
 pub enum RashinErr {
@@ -33,6 +35,21 @@ pub fn listen(fd: fd::RawFd, backlog: i32) -> Result<(), RashinErr> {
     let error_code = unsafe { libc::listen(fd.as_raw_fd(), backlog) };
     if error_code == -1 {
         println!("`listen` fails with errno {}.", errno());
+        return Err(RashinErr::SyscallError(errno()));
+    }
+    Ok(())
+}
+
+pub fn setsockopt(
+    fd: fd::RawFd,
+    level: i32,
+    name: i32,
+    optval: *const libc::c_void,
+    optlen: u32,
+) -> Result<(), RashinErr> {
+    let error_code = unsafe { libc::setsockopt(fd.as_raw_fd(), level, name, optval, optlen) };
+    if error_code == -1 {
+        println!("`setsockopt` fails with errno {}.", errno());
         return Err(RashinErr::SyscallError(errno()));
     }
     Ok(())
@@ -160,7 +177,5 @@ pub fn fnctl(fd: fd::RawFd) -> Result<(), RashinErr> {
 }
 
 pub fn errno() -> i32 {
-    unsafe {
-        *libc::__errno_location()
-    }
+    unsafe { *libc::__errno_location() }
 }

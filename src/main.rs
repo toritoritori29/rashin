@@ -34,10 +34,27 @@ fn main() {
 
     println!("Start Server!");
     let listener_fd = syscall::socket().unwrap();
-    let mut addr = unsafe { mem::transmute::<libc::sockaddr_in, libc::sockaddr>(addr) };
+    let optval = 1;
+    syscall::setsockopt(
+        listener_fd,
+        libc::SOL_SOCKET,
+        libc::SO_REUSEADDR,
+        &optval as *const _ as *const libc::c_void,
+        mem::size_of::<i32>() as u32,
+    )
+    .unwrap();
+    syscall::setsockopt(
+        listener_fd,
+        libc::SOL_SOCKET,
+        libc::SO_REUSEPORT,
+        &optval as *const _ as *const libc::c_void,
+        mem::size_of::<i32>() as u32,
+    )
+    .unwrap();
 
     //Bind and Listen
     // https://linuxjm.osdn.jp/html/LDP_man-pages/man2/listen.2.html
+    let mut addr = unsafe { mem::transmute::<libc::sockaddr_in, libc::sockaddr>(addr) };
     syscall::bind(listener_fd, &addr).unwrap();
     syscall::listen(listener_fd, 10).unwrap();
 
@@ -78,7 +95,7 @@ fn main() {
             Err(syscall::RashinErr::SyscallError(libc::EINTR)) => {
                 println!("Interrupted system call");
                 continue;
-            },
+            }
             Err(e) => {
                 println!("Error: {}", e);
                 continue;
