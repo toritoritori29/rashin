@@ -76,7 +76,7 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
             }
         };
         let s = String::from_utf8_lossy(&connection.buf[..size]);
-        println!("Recv: {}", s);
+        // println!("Recv: {}", s);
 
         // Process Write Event
         let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");

@@ -6,7 +6,6 @@ use libc;
 use std::collections::HashMap;
 use std::mem;
 use std::os::fd;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -57,6 +56,8 @@ fn main() {
     let mut addr = unsafe { mem::transmute::<libc::sockaddr_in, libc::sockaddr>(addr) };
     syscall::bind(listener_fd, &addr).unwrap();
     syscall::listen(listener_fd, 10).unwrap();
+    syscall::fnctl(listener_fd).unwrap();
+
 
     // Signal Handling
     // アトミック変数を用いてSIGINTが発生したか(Ctrl-Cが押されたか)を判定する
@@ -72,10 +73,9 @@ fn main() {
     // epoll_ctlでfdを監視対象に加える
     // epoll_waitでイベントを検知した際に, ここで渡したものと同じ値を受け取ることができる
     let mut event = libc::epoll_event {
-        events: libc::EPOLLIN as u32,
+        events: (libc::EPOLLET | libc::EPOLLIN) as u32,
         u64: listener_fd as u64,
     };
-    println!("listner flag {}", (libc::EPOLLET | libc::EPOLLIN) as u32);
     syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_ADD, listener_fd, Some(&mut event)).unwrap();
     let mut events_buffer =
         unsafe { vec![mem::zeroed::<libc::epoll_event>(); MAX_EVENTS_SIZE as usize] };
@@ -108,31 +108,44 @@ fn main() {
 
             // Accept incoming connection requests.
             if event_fd == listener_fd {
-                let accept_fd = syscall::accept(listener_fd, &mut addr).unwrap();
-                if accept_fd == -1 {
-                    println!("Error");
-                    continue;
-                }
-                println!(
-                    "Accept connection. Prepare a file descriptor {} for this connection.",
-                    &accept_fd
-                );
-                let mut epoll_event = libc::epoll_event {
-                    events: (libc::EPOLLET | libc::EPOLLIN | libc::EPOLLOUT) as u32,
-                    u64: accept_fd as u64,
-                };
-                syscall::epoll_ctl(
-                    epoll_fd,
-                    libc::EPOLL_CTL_ADD,
-                    accept_fd,
-                    Some(&mut epoll_event),
-                )
-                .unwrap();
+                // Accept connection
+                // epollで待機しているので原則としてブロックされることが無いが,
+                // 何かしらの理由で当該のコネクションが消える可能性がある.
+                // 詳細は`man accept`に記載があるので参照
+                loop {
+                    // EAGAIN または ERRORが発生するまでacceptを繰り返す
+                    let accept_fd = match syscall::accept(listener_fd, &mut addr) {
+                        Ok(fd) => fd,
+                        Err(syscall::RashinErr::SyscallError(libc::EAGAIN)) => {
+                            println!("No connection request");
+                            break;
+                        }
+                        Err(e) => {
+                            println!("Error: {}", e);
+                            break;
+                        }
+                    };
+                    println!(
+                        "Accept connection. Prepare a file descriptor {} for this connection.",
+                        &accept_fd
+                    );
+                    let mut epoll_event = libc::epoll_event {
+                        events: (libc::EPOLLET | libc::EPOLLIN | libc::EPOLLOUT) as u32,
+                        u64: accept_fd as u64,
+                    };
+                    syscall::epoll_ctl(
+                        epoll_fd,
+                        libc::EPOLL_CTL_ADD,
+                        accept_fd,
+                        Some(&mut epoll_event),
+                    )
+                    .unwrap();
 
-                syscall::fnctl(accept_fd).unwrap();
-                let connection = Connection::new(accept_fd);
-                let event = init_http_event(connection);
-                event_map.insert(accept_fd, event);
+                    syscall::fnctl(accept_fd).unwrap();
+                    let connection = Connection::new(accept_fd);
+                    let event = init_http_event(connection);
+                    event_map.insert(accept_fd, event);
+                }
                 continue;
             }
 
