@@ -1,8 +1,9 @@
 /// Core.rs
 /// このモジュールではrashinの基本的な構造体の定義と, イベントハンドラの定義を行う
-///
-use crate::syscall::{self, RashinErr};
+
 use std::os::fd::RawFd;
+use crate::syscall;
+use crate::error::RashinErr;
 
 #[derive(Clone, Debug)]
 pub enum EventState {

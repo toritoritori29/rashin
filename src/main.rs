@@ -1,5 +1,7 @@
 mod core;
 mod syscall;
+mod error;
+mod system_utils;
 
 use libc;
 
@@ -10,6 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::core::{init_http_event, Connection, Event, EventState};
+use crate::error::RashinErr;
 
 // Read these document before develpment.
 // * Nginx Development Guide
@@ -30,34 +33,10 @@ fn main() {
         },
         sin_zero: [0; 8],
     };
+    let mut addr = unsafe { mem::transmute::<libc::sockaddr_in, libc::sockaddr>(addr) };
 
     println!("Start Server!");
-    let listener_fd = syscall::socket().unwrap();
-    let optval = 1;
-    syscall::setsockopt(
-        listener_fd,
-        libc::SOL_SOCKET,
-        libc::SO_REUSEADDR,
-        &optval as *const _ as *const libc::c_void,
-        mem::size_of::<i32>() as u32,
-    )
-    .unwrap();
-    syscall::setsockopt(
-        listener_fd,
-        libc::SOL_SOCKET,
-        libc::SO_REUSEPORT,
-        &optval as *const _ as *const libc::c_void,
-        mem::size_of::<i32>() as u32,
-    )
-    .unwrap();
-
-    //Bind and Listen
-    // https://linuxjm.osdn.jp/html/LDP_man-pages/man2/listen.2.html
-    let mut addr = unsafe { mem::transmute::<libc::sockaddr_in, libc::sockaddr>(addr) };
-    syscall::bind(listener_fd, &addr).unwrap();
-    syscall::listen(listener_fd, 10).unwrap();
-    syscall::fnctl(listener_fd).unwrap();
-
+    let listener_fd = system_utils::create_listner_socket(&addr).unwrap();
 
     // Signal Handling
     // アトミック変数を用いてSIGINTが発生したか(Ctrl-Cが押されたか)を判定する
@@ -92,7 +71,7 @@ fn main() {
         );
         let events_num = match wait_result {
             Ok(n) => n,
-            Err(syscall::RashinErr::SyscallError(libc::EINTR)) => {
+            Err(RashinErr::SyscallError(libc::EINTR)) => {
                 println!("Interrupted system call");
                 continue;
             }
@@ -116,7 +95,7 @@ fn main() {
                     // EAGAIN または ERRORが発生するまでacceptを繰り返す
                     let accept_fd = match syscall::accept(listener_fd, &mut addr) {
                         Ok(fd) => fd,
-                        Err(syscall::RashinErr::SyscallError(libc::EAGAIN)) => {
+                        Err(RashinErr::SyscallError(libc::EAGAIN)) => {
                             println!("No connection request");
                             break;
                         }

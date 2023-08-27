@@ -1,16 +1,10 @@
 use std::mem;
 use std::os::fd::{self, AsRawFd};
-use thiserror::Error;
+use crate::error::RashinErr;
 
 /// syscall.rs
 /// libcをsafeに使うためのユーティリティ関数.
 /// 原則としてシステムコールに対応した名称の関数を定義する.
-
-#[derive(Debug, Error)]
-pub enum RashinErr {
-    #[error("Syscall returns some error. errno = {0}")]
-    SyscallError(i32),
-}
 
 pub fn socket() -> Result<std::os::fd::RawFd, RashinErr> {
     let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
