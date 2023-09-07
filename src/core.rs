@@ -97,3 +97,12 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
         println!("Connection is None.");
     }
 }
+
+
+fn parse_http_request_line(buf: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
+    let mut iter = buf.split(|&x| x == b' ');
+    let method = iter.next()?;
+    let path = iter.next()?;
+    let version = iter.next()?;
+    Some((method, path, version))
+}

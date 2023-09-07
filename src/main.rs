@@ -2,6 +2,7 @@ mod core;
 mod syscall;
 mod error;
 mod system_utils;
+mod http;
 
 use libc;
 
