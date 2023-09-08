@@ -1,8 +1,8 @@
 mod core;
-mod syscall;
 mod error;
-mod system_utils;
 mod http;
+mod syscall;
+mod system_utils;
 
 use libc;
 
@@ -63,7 +63,6 @@ fn main() {
 
     while !term.load(Ordering::Relaxed) {
         // epollにeventが入ってくるまで待機
-        println!("Wait for epoll event");
         let wait_result = syscall::epoll_wait(
             epoll_fd,
             &mut events_buffer,

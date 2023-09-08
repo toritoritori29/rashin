@@ -1,6 +1,6 @@
+use crate::error::RashinErr;
 use std::mem;
 use std::os::fd::{self, AsRawFd};
-use crate::error::RashinErr;
 
 /// syscall.rs
 /// libcをsafeに使うためのユーティリティ関数.

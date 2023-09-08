@@ -1,9 +1,12 @@
+use bytes::Bytes;
 /// Core.rs
 /// このモジュールではrashinの基本的な構造体の定義と, イベントハンドラの定義を行う
-
 use std::os::fd::RawFd;
-use crate::syscall;
+
 use crate::error::RashinErr;
+use crate::http::http_interface::{HTTPHeader, ParseResult};
+use crate::http::parse_request_header::parse_http_request_line;
+use crate::syscall;
 
 #[derive(Clone, Debug)]
 pub enum EventState {
@@ -76,8 +79,18 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
                 panic!("Error: {}", e);
             }
         };
-        let s = String::from_utf8_lossy(&connection.buf[..size]);
-        // println!("Recv: {}", s);
+
+        let mut header = HTTPHeader::new();
+        let buffer = Bytes::copy_from_slice(&connection.buf);
+
+        let result = parse_http_request_line(&buffer, &mut header);
+        if let ParseResult::Complete = result {
+            println!("Method: {}", header.method(&buffer));
+            println!("Path: {}", header.path(&buffer));
+            println!("Protocol: {}", header.protocol(&buffer));
+        } else {
+            println!("Parse Error");
+        }
 
         // Process Write Event
         let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
@@ -96,13 +109,4 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
     } else {
         println!("Connection is None.");
     }
-}
-
-
-fn parse_http_request_line(buf: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
-    let mut iter = buf.split(|&x| x == b' ');
-    let method = iter.next()?;
-    let path = iter.next()?;
-    let version = iter.next()?;
-    Some((method, path, version))
 }

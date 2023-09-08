@@ -13,6 +13,6 @@ pub fn read_byte<T: AsRef<[u8]>>(buf: &mut Cursor<T>) -> ReadResult {
     match size {
         Ok(0) => ReadResult::Again,
         Ok(1) => ReadResult::Ok(b[0]),
-        _ => ReadResult::Err, 
+        _ => ReadResult::Err,
     }
 }

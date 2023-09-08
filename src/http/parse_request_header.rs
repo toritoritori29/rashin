@@ -1,5 +1,3 @@
-
-
 use bytes::Bytes;
 use std::io::{Cursor, Read};
 
@@ -16,11 +14,11 @@ enum RequestLineState {
 
 /// RequestLineの実装
 /// リエントラントにするよう実装する。
-/// 
+///
 /// TODO: read周りが冗長なのでユーティリティ関数を作る
 /// TODO: HTTP1.1しかパースできないのでもう少し汎用的にする
 /// TODO: パスの中身をしっかり検証していない
-fn parse_http_request_line<'a>(buf: &'a Bytes, header: &mut HTTPHeader) -> ParseResult {
+pub fn parse_http_request_line<'a>(buf: &'a Bytes, header: &mut HTTPHeader) -> ParseResult {
     let mut cursor = Cursor::new(buf);
     let mut state = RequestLineState::Start;
     loop {
@@ -31,28 +29,28 @@ fn parse_http_request_line<'a>(buf: &'a Bytes, header: &mut HTTPHeader) -> Parse
                     state = RequestLineState::Method;
                 }
                 result
-            },
+            }
             RequestLineState::Method => {
                 let result = parse_method(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     state = RequestLineState::Path;
                 }
                 result
-            },
+            }
             RequestLineState::Path => {
                 let result = parse_path(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     state = RequestLineState::Protocol;
                 }
                 result
-            },
+            }
             RequestLineState::Protocol => {
                 let result: ParseResult = parse_protocol(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     state = RequestLineState::End;
                 }
                 result
-            },
+            }
             RequestLineState::End => {
                 let result: ParseResult = parse_end(&mut cursor, header);
                 if let ParseResult::Ok = result {
@@ -66,13 +64,13 @@ fn parse_http_request_line<'a>(buf: &'a Bytes, header: &mut HTTPHeader) -> Parse
         match result {
             ParseResult::Again => {
                 return ParseResult::Again;
-            },
+            }
             ParseResult::Error => {
                 return ParseResult::Error;
-            },
+            }
             ParseResult::Complete => {
                 return ParseResult::Complete;
-            },
+            }
             ParseResult::Ok => {
                 continue;
             }
@@ -80,7 +78,7 @@ fn parse_http_request_line<'a>(buf: &'a Bytes, header: &mut HTTPHeader) -> Parse
     }
 }
 
-fn parse_start(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_start(cursor: &mut Cursor<&Bytes>, header: &mut HTTPHeader) -> ParseResult {
     loop {
         match read_byte(cursor) {
             ReadResult::Ok(c) => {
@@ -90,19 +88,16 @@ fn parse_start(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseRes
                     header.method_start = cursor.position() as usize - 1;
                     return ParseResult::Ok;
                 }
-           },
+            }
             ReadResult::Again => {
                 return ParseResult::Again;
-            },
-            ReadResult::Err => {
-                return ParseResult::Error
             }
+            ReadResult::Err => return ParseResult::Error,
         }
     }
 }
 
-
-fn parse_method(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_method(cursor: &mut Cursor<&Bytes>, header: &mut HTTPHeader) -> ParseResult {
     loop {
         match read_byte(cursor) {
             ReadResult::Ok(c) => {
@@ -111,10 +106,10 @@ fn parse_method(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseRe
                     header.path_start = cursor.position() as usize;
                     return ParseResult::Ok;
                 }
-            },
+            }
             ReadResult::Again => {
                 return ParseResult::Again;
-            },
+            }
             ReadResult::Err => {
                 return ParseResult::Error;
             }
@@ -122,7 +117,7 @@ fn parse_method(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseRe
     }
 }
 
-fn parse_path(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_path(cursor: &mut Cursor<&Bytes>, header: &mut HTTPHeader) -> ParseResult {
     loop {
         match read_byte(cursor) {
             ReadResult::Ok(c) => {
@@ -134,70 +129,67 @@ fn parse_path(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResu
                 if !c.is_ascii_graphic() {
                     return ParseResult::Error;
                 }
-            },
+            }
             ReadResult::Again => {
                 return ParseResult::Again;
-            },
+            }
             ReadResult::Err => {
                 return ParseResult::Error;
             }
         }
-
-
     }
 }
 
-
-fn parse_protocol(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_protocol(cursor: &mut Cursor<&Bytes>, header: &mut HTTPHeader) -> ParseResult {
     loop {
         let read_result = read_byte(cursor);
         let c = match read_result {
             ReadResult::Ok(c) => c,
             ReadResult::Again => {
                 return ParseResult::Again;
-            },
+            }
             ReadResult::Err => {
                 return ParseResult::Error;
             }
         };
- 
+
         let offset = cursor.position() as usize - header.protocol_start - 1;
         match offset {
             0 => {
                 if c != b'H' {
                     return ParseResult::Error;
                 }
-            },
+            }
             1 => {
                 if c != b'T' {
                     return ParseResult::Error;
                 }
-            },
+            }
             2 => {
                 if c != b'T' {
                     return ParseResult::Error;
                 }
-            },
+            }
             3 => {
                 if c != b'P' {
                     return ParseResult::Error;
                 }
-            },
+            }
             4 => {
                 if c != b'/' {
                     return ParseResult::Error;
                 }
-            },
+            }
             5 => {
                 if c != b'1' {
                     return ParseResult::Error;
                 }
-            },
+            }
             6 => {
                 if c != b'.' {
                     return ParseResult::Error;
                 }
-            },
+            }
             7 => {
                 if c != b'1' {
                     return ParseResult::Error;
@@ -205,7 +197,7 @@ fn parse_protocol(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> Parse
                 // Success to parse
                 header.protocol_end = cursor.position() as usize;
                 return ParseResult::Ok;
-            },
+            }
             _ => {
                 return ParseResult::Error;
             }
@@ -213,16 +205,14 @@ fn parse_protocol(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> Parse
     }
 }
 
-
 /// CR LF またｈは LF で終わることを確認する
-fn parse_end(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
-
+fn parse_end(cursor: &mut Cursor<&Bytes>, header: &mut HTTPHeader) -> ParseResult {
     let read_result = read_byte(cursor);
     let c1 = match read_result {
         ReadResult::Ok(c) => c,
         ReadResult::Again => {
             return ParseResult::Again;
-        },
+        }
         ReadResult::Err => {
             return ParseResult::Error;
         }
@@ -236,7 +226,7 @@ fn parse_end(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResul
             ReadResult::Ok(c) => c,
             ReadResult::Again => {
                 return ParseResult::Again;
-            },
+            }
             ReadResult::Err => {
                 return ParseResult::Error;
             }
@@ -245,7 +235,7 @@ fn parse_end(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResul
             return ParseResult::Ok;
         }
         return ParseResult::Error;
-    } 
+    }
     ParseResult::Error
 }
 
@@ -286,7 +276,6 @@ mod tests {
         assert_eq!(header.protocol(&buf), "HTTP/1.1");
     }
 
-
     #[test]
     fn get_request_for_root_with_head_crlf() {
         let buf = Bytes::from("\r\n\rGET / HTTP/1.1\n");
@@ -306,7 +295,6 @@ mod tests {
         assert!(matches!(result, ParseResult::Error));
     }
 
-
     #[test]
     fn no_path_request_should_failed() {
         let buf = Bytes::from("GET HTTP/1.1\n");
@@ -315,7 +303,6 @@ mod tests {
         assert!(matches!(result, ParseResult::Error));
     }
 
-
     #[test]
     fn unknown_protocol_should_failed() {
         let buf = Bytes::from("GET / SMTP/1.1\n");
@@ -323,7 +310,6 @@ mod tests {
         let result = parse_http_request_line(&buf, &mut header);
         assert!(matches!(result, ParseResult::Error));
     }
-
 
     #[test]
     fn unnecessary_suffix_should_failed() {
