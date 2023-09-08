@@ -131,6 +131,9 @@ fn parse_path(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResu
                     header.protocol_start = cursor.position() as usize;
                     return ParseResult::Ok;
                 }
+                if !c.is_ascii_graphic() {
+                    return ParseResult::Error;
+                }
             },
             ReadResult::Again => {
                 return ParseResult::Again;
@@ -293,5 +296,40 @@ mod tests {
         assert_eq!(header.method(&buf), "GET");
         assert_eq!(header.path(&buf), "/");
         assert_eq!(header.protocol(&buf), "HTTP/1.1");
+    }
+
+    #[test]
+    fn invalid_space_request_should_failed() {
+        let buf = Bytes::from("GET   /   HTTP/1.1\n");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Error));
+    }
+
+
+    #[test]
+    fn no_path_request_should_failed() {
+        let buf = Bytes::from("GET HTTP/1.1\n");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Error));
+    }
+
+
+    #[test]
+    fn unknown_protocol_should_failed() {
+        let buf = Bytes::from("GET / SMTP/1.1\n");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Error));
+    }
+
+
+    #[test]
+    fn unnecessary_suffix_should_failed() {
+        let buf = Bytes::from("GET / HTTP/1.1xxx\n");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Error));
     }
 }
