@@ -1,9 +1,8 @@
 
-use bytes::Bytes;
+use bytes::{Bytes, buf};
 use std::io::{Cursor, Read};
 
 struct HTTPHeader {
-    buffer: Bytes,
     method_start: usize,
     method_end: usize,
     path_start: usize,
@@ -13,9 +12,8 @@ struct HTTPHeader {
 }
 
 impl HTTPHeader {
-    fn new(buffer: Bytes) -> Self {
+    fn new() -> Self {
         HTTPHeader {
-            buffer,
             method_start: 0,
             method_end: 0,
             path_start: 0,
@@ -25,16 +23,16 @@ impl HTTPHeader {
         }
     }
 
-    fn method(&self) -> &str {
-        std::str::from_utf8(&self.buffer[self.method_start..self.method_end]).unwrap()
+    fn method<'a>(&self, buffer: &'a Bytes) -> &'a str {
+        std::str::from_utf8(&buffer[self.method_start..self.method_end]).unwrap()
     }
 
-    fn path(&self) -> &str {
-        std::str::from_utf8(&self.buffer[self.path_start..self.path_end]).unwrap()
+    fn path<'a>(&self, buffer: &'a Bytes) -> &'a str {
+        std::str::from_utf8(&buffer[self.path_start..self.path_end]).unwrap()
     }
 
-    fn protocol(&self) -> &str {
-        std::str::from_utf8(&self.buffer[self.protocol_start..self.protocol_end]).unwrap()
+    fn protocol<'a>(&self, buffer: &'a Bytes) -> &'a str {
+        std::str::from_utf8(&buffer[self.protocol_start..self.protocol_end]).unwrap()
     }
 }
 
@@ -53,43 +51,47 @@ enum ParseResult {
     Error,
 }
 
-fn parse_http_request_line(buf: Bytes) -> HTTPHeader{
-    let mut cursor = Cursor::new(buf.clone());
-    let mut header = HTTPHeader::new(buf);
-
+/// RequestLineの実装
+/// リエントラントにするよう実装する。
+/// 
+/// TODO: read周りが冗長なのでユーティリティ関数を作る
+/// TODO: HTTP1.1しかパースできないのでもう少し汎用的にする
+/// TODO: パスの中身をしっかり検証していない
+fn parse_http_request_line<'a>(buf: &'a Bytes, header: &mut HTTPHeader) -> ParseResult {
+    let mut cursor = Cursor::new(buf);
     let mut state = RequestLineState::Start;
     loop {
         let result = match state {
             RequestLineState::Start => {
-                let result = parse_start(&mut cursor, &mut header);
+                let result = parse_start(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     state = RequestLineState::Method;
                 }
                 result
             },
             RequestLineState::Method => {
-                let result = parse_method(&mut cursor, &mut header);
+                let result = parse_method(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     state = RequestLineState::Path;
                 }
                 result
             },
             RequestLineState::Path => {
-                let result = parse_path(&mut cursor, &mut header);
+                let result = parse_path(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     state = RequestLineState::Protocol;
                 }
                 result
             },
             RequestLineState::Protocol => {
-                let result: ParseResult = parse_protocol(&mut cursor, &mut header);
+                let result: ParseResult = parse_protocol(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     state = RequestLineState::End;
                 }
                 result
             },
             RequestLineState::End => {
-                let result: ParseResult = parse_end(&mut cursor, &mut header);
+                let result: ParseResult = parse_end(&mut cursor, header);
                 if let ParseResult::Ok = result {
                     ParseResult::Complete
                 } else {
@@ -98,17 +100,24 @@ fn parse_http_request_line(buf: Bytes) -> HTTPHeader{
             }
         };
 
-        if let ParseResult::Complete = result {
-            break;
-        }
-        if let ParseResult::Error = result {
-            panic!("Error");
+        match result {
+            ParseResult::Again => {
+                return ParseResult::Again;
+            },
+            ParseResult::Error => {
+                return ParseResult::Error;
+            },
+            ParseResult::Complete => {
+                return ParseResult::Complete;
+            },
+            ParseResult::Ok => {
+                continue;
+            }
         }
     }
-    header
 }
 
-fn parse_start(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_start(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     let mut byte = [0; 1];
 
     loop {
@@ -130,7 +139,7 @@ fn parse_start(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
 }
 
 
-fn parse_method(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_method(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     let mut byte = [0; 1];
     loop {
         let size = match c.read(&mut byte) {
@@ -151,7 +160,7 @@ fn parse_method(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
     ParseResult::Ok
 }
 
-fn parse_path(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_path(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     let mut byte = [0; 1];
     loop {
         let size = match c.read(&mut byte) {
@@ -173,7 +182,7 @@ fn parse_path(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
 }
 
 
-fn parse_protocol(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_protocol(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     let mut byte = [0; 1];
     loop {
         let size = match c.read(&mut byte) {
@@ -239,7 +248,7 @@ fn parse_protocol(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult
 
 
 /// CR LF またｈは LF で終わることを確認する
-fn parse_end(c: &mut Cursor<Bytes>, header :&mut HTTPHeader) -> ParseResult {
+fn parse_end(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     let mut byte = [0; 1]; 
     let size = match c.read(&mut byte) {
         Ok(size) => size,
@@ -279,28 +288,45 @@ mod tests {
     #[test]
     fn get_request_for_root() {
         let buf = Bytes::from("GET / HTTP/1.1\r\n");
-        let header = parse_http_request_line(buf);
-        assert_eq!(header.method(), "GET");
-        assert_eq!(header.path(), "/");
-        assert_eq!(header.protocol(), "HTTP/1.1");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Complete));
+        assert_eq!(header.method(&buf), "GET");
+        assert_eq!(header.path(&buf), "/");
+        assert_eq!(header.protocol(&buf), "HTTP/1.1");
+    }
+
+    #[test]
+    fn get_request_for_index_html() {
+        let buf = Bytes::from("GET /index.html HTTP/1.1\r\n");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Complete));
+        assert_eq!(header.method(&buf), "GET");
+        assert_eq!(header.path(&buf), "/index.html");
+        assert_eq!(header.protocol(&buf), "HTTP/1.1");
     }
 
     #[test]
     fn get_request_for_root_lf() {
         let buf = Bytes::from("GET / HTTP/1.1\n");
-        let header = parse_http_request_line(buf);
-        assert_eq!(header.method(), "GET");
-        assert_eq!(header.path(), "/");
-        assert_eq!(header.protocol(), "HTTP/1.1");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Complete));
+        assert_eq!(header.method(&buf), "GET");
+        assert_eq!(header.path(&buf), "/");
+        assert_eq!(header.protocol(&buf), "HTTP/1.1");
     }
 
 
     #[test]
     fn get_request_for_root_with_head_crlf() {
         let buf = Bytes::from("\r\n\rGET / HTTP/1.1\n");
-        let header = parse_http_request_line(buf);
-        assert_eq!(header.method(), "GET");
-        assert_eq!(header.path(), "/");
-        assert_eq!(header.protocol(), "HTTP/1.1");
+        let mut header = HTTPHeader::new();
+        let result = parse_http_request_line(&buf, &mut header);
+        assert!(matches!(result, ParseResult::Complete));
+        assert_eq!(header.method(&buf), "GET");
+        assert_eq!(header.path(&buf), "/");
+        assert_eq!(header.protocol(&buf), "HTTP/1.1");
     }
 }
