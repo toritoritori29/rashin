@@ -102,104 +102,105 @@ fn parse_start(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseRes
 }
 
 
-fn parse_method(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
-    let mut byte = [0; 1];
+fn parse_method(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     loop {
-        let size = match c.read(&mut byte) {
-            Ok(size) => size,
-            Err(_) => {
+        match read_byte(cursor) {
+            ReadResult::Ok(c) => {
+                if c == b' ' {
+                    header.method_end = cursor.position() as usize - 1;
+                    header.path_start = cursor.position() as usize;
+                    return ParseResult::Ok;
+                }
+            },
+            ReadResult::Again => {
+                return ParseResult::Again;
+            },
+            ReadResult::Err => {
                 return ParseResult::Error;
             }
-        };
-        if size == 0 {
-            return ParseResult::Again;
-        }
-        if byte[0] == b' ' {
-            header.method_end = c.position() as usize - 1;
-            header.path_start = c.position() as usize;
-            break;
         }
     }
-    ParseResult::Ok
 }
 
-fn parse_path(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
-    let mut byte = [0; 1];
+fn parse_path(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     loop {
-        let size = match c.read(&mut byte) {
-            Ok(size) => size,
-            Err(_) => {
+        match read_byte(cursor) {
+            ReadResult::Ok(c) => {
+                if c == b' ' {
+                    header.path_end = cursor.position() as usize - 1;
+                    header.protocol_start = cursor.position() as usize;
+                    return ParseResult::Ok;
+                }
+            },
+            ReadResult::Again => {
+                return ParseResult::Again;
+            },
+            ReadResult::Err => {
                 return ParseResult::Error;
             }
-        };
-        if size == 0 {
-            return ParseResult::Again;
         }
-        if byte[0] == b' ' {
-            header.path_end = c.position() as usize - 1;
-            header.protocol_start = c.position() as usize;
-            break;
-        }
+
+
     }
-    ParseResult::Ok
 }
 
 
-fn parse_protocol(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
-    let mut byte = [0; 1];
+fn parse_protocol(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
     loop {
-        let size = match c.read(&mut byte) {
-            Ok(size) => size,
-            Err(_) => {
+        let read_result = read_byte(cursor);
+        let c = match read_result {
+            ReadResult::Ok(c) => c,
+            ReadResult::Again => {
+                return ParseResult::Again;
+            },
+            ReadResult::Err => {
                 return ParseResult::Error;
             }
         };
-        if size == 0 {
-            return ParseResult::Again;
-        }
-        let offset = c.position() as usize - header.protocol_start - 1;
+ 
+        let offset = cursor.position() as usize - header.protocol_start - 1;
         match offset {
             0 => {
-                if byte[0] != b'H' {
+                if c != b'H' {
                     return ParseResult::Error;
                 }
             },
             1 => {
-                if byte[0] != b'T' {
+                if c != b'T' {
                     return ParseResult::Error;
                 }
             },
             2 => {
-                if byte[0] != b'T' {
+                if c != b'T' {
                     return ParseResult::Error;
                 }
             },
             3 => {
-                if byte[0] != b'P' {
+                if c != b'P' {
                     return ParseResult::Error;
                 }
             },
             4 => {
-                if byte[0] != b'/' {
+                if c != b'/' {
                     return ParseResult::Error;
                 }
             },
             5 => {
-                if byte[0] != b'1' {
+                if c != b'1' {
                     return ParseResult::Error;
                 }
             },
             6 => {
-                if byte[0] != b'.' {
+                if c != b'.' {
                     return ParseResult::Error;
                 }
             },
             7 => {
-                if byte[0] != b'1' {
+                if c != b'1' {
                     return ParseResult::Error;
                 }
                 // Success to parse
-                header.protocol_end = c.position() as usize;
+                header.protocol_end = cursor.position() as usize;
                 return ParseResult::Ok;
             },
             _ => {
@@ -211,32 +212,33 @@ fn parse_protocol(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResul
 
 
 /// CR LF またｈは LF で終わることを確認する
-fn parse_end(c: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
-    let mut byte = [0; 1]; 
-    let size = match c.read(&mut byte) {
-        Ok(size) => size,
-        Err(_) => {
+fn parse_end(cursor: &mut Cursor<&Bytes>, header :&mut HTTPHeader) -> ParseResult {
+
+    let read_result = read_byte(cursor);
+    let c1 = match read_result {
+        ReadResult::Ok(c) => c,
+        ReadResult::Again => {
+            return ParseResult::Again;
+        },
+        ReadResult::Err => {
             return ParseResult::Error;
         }
     };
-    if size == 0 {
-        return ParseResult::Again;
-    } 
 
-    if byte[0] == b'\n' {
+    if c1 == b'\n' {
         return ParseResult::Ok;
     }
-    if byte[0] == b'\r' {
-        let size = match c.read(&mut byte) {
-            Ok(size) => size,
-            Err(_) => {
+    if c1 == b'\r' {
+        let c2 = match read_byte(cursor) {
+            ReadResult::Ok(c) => c,
+            ReadResult::Again => {
+                return ParseResult::Again;
+            },
+            ReadResult::Err => {
                 return ParseResult::Error;
             }
         };
-        if size == 0 {
-            return ParseResult::Again;
-        } 
-        if byte[0] == b'\n' {
+        if c2 == b'\n' {
             return ParseResult::Ok;
         }
         return ParseResult::Error;
