@@ -5,7 +5,7 @@ use std::os::fd::RawFd;
 
 use crate::error::RashinErr;
 use crate::http::http_interface::{HTTPHeader, ParseResult};
-use crate::http::parse_request_header::parse_http_request_line;
+use crate::http::parse_request_line::parse_http_request_line;
 use crate::syscall;
 
 #[derive(Clone, Debug)]
