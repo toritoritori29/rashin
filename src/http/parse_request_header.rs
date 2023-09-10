@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use super::http_interface::{Field, ParseResult};
 use super::parse_utility::{read_byte, ReadResult};
@@ -14,8 +14,8 @@ pub enum RequestHeaderState {
     End,
 }
 
-pub fn parse_http_request_header<'a>(
-    cursor: &'a mut Cursor<&Bytes>,
+pub fn parse_http_request_header<'a, T: AsRef<[u8]>>(
+    cursor: &'a mut Cursor<T>,
     field: &mut Field,
 ) -> ParseResult<RequestHeaderState> {
     // let mut cursor = Cursor::new(buf);
@@ -43,7 +43,10 @@ pub fn parse_http_request_header<'a>(
 }
 
 /// ヘッダー行の冒頭を読み込む。
-fn parse_start(cursor: &mut Cursor<&Bytes>, field: &mut Field) -> ParseResult<RequestHeaderState> {
+fn parse_start<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
+    field: &mut Field,
+) -> ParseResult<RequestHeaderState> {
     let read_result = read_byte(cursor);
     match read_result {
         ReadResult::Ok(b'\r') => {
@@ -71,7 +74,10 @@ fn parse_start(cursor: &mut Cursor<&Bytes>, field: &mut Field) -> ParseResult<Re
 }
 
 // field-nameをパースする。
-fn parse_name(cursor: &mut Cursor<&Bytes>, field: &mut Field) -> ParseResult<RequestHeaderState> {
+fn parse_name<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
+    field: &mut Field,
+) -> ParseResult<RequestHeaderState> {
     loop {
         let read_result = read_byte(cursor);
         match read_result {
@@ -94,8 +100,8 @@ fn parse_name(cursor: &mut Cursor<&Bytes>, field: &mut Field) -> ParseResult<Req
     }
 }
 
-fn parse_ows_before_value(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_ows_before_value<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     field: &mut Field,
 ) -> ParseResult<RequestHeaderState> {
     loop {
@@ -121,8 +127,8 @@ fn parse_ows_before_value(
     }
 }
 
-fn parse_field_value(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_field_value<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     field: &mut Field,
 ) -> ParseResult<RequestHeaderState> {
     loop {
@@ -152,8 +158,8 @@ fn parse_field_value(
     }
 }
 
-fn parse_ows_after_value(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_ows_after_value<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     field: &mut Field,
 ) -> ParseResult<RequestHeaderState> {
     loop {
@@ -184,7 +190,10 @@ fn parse_ows_after_value(
     }
 }
 
-fn parse_end_lf(cursor: &mut Cursor<&Bytes>, field: &mut Field) -> ParseResult<RequestHeaderState> {
+fn parse_end_lf<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<&T>,
+    field: &mut Field,
+) -> ParseResult<RequestHeaderState> {
     let read_result = read_byte(cursor);
     match read_result {
         ReadResult::Ok(b'\n') => {
@@ -223,7 +232,7 @@ mod tests {
         let buf = Bytes::from("Host:     localhost:8080      \r\n");
         let mut cursor = Cursor::new(&buf);
         let result = parse_http_request_header(&mut cursor, &mut field);
- 
+
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(field.name(&buf), "Host");
         assert_eq!(field.value(&buf), "localhost:8080");
@@ -243,7 +252,7 @@ mod tests {
     #[test]
     fn parse_consecutive_headers_successfully() {
         let mut field = Field::new();
-        let mut buf = Bytes::from("Host: localhost:8080\r\nContentType: text-html\r\n");
+        let buf = Bytes::from("Host: localhost:8080\r\nContentType: text-html\r\n");
         let mut cursor = Cursor::new(&buf);
 
         let result1 = parse_http_request_header(&mut cursor, &mut field);
@@ -255,6 +264,21 @@ mod tests {
         assert!(matches!(result2, ParseResult::Complete));
         assert_eq!(field.name(&buf), "ContentType");
         assert_eq!(field.value(&buf), "text-html");
+    }
+
+    #[test]
+    fn parse_paused_input_successfully() {
+        let mut field = Field::new();
+        let mut buf = "Host: local".as_bytes().to_vec();
+        let mut cursor = Cursor::new(&mut buf);
+
+        let result1 = parse_http_request_header(&mut cursor, &mut field);
+        assert!(matches!(result1, ParseResult::Again));
+        assert_eq!(field.name(cursor.get_ref()), "Host");
+
+        // cursor.write_all("host:8080\r\n".as_bytes()).unwrap();
+        // let result2 = parse_http_request_header(&mut cursor, &mut field);
+        // assert!(matches!(result2, ParseResult::Complete));
     }
 
     #[test]

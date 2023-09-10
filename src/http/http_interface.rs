@@ -58,12 +58,12 @@ impl Field {
         }
     }
 
-    pub fn name<'a>(&self, buffer: &'a Bytes) -> &'a str {
-        std::str::from_utf8(&buffer[self.name_start..self.name_end]).unwrap()
+    pub fn name<'a, T: AsRef<[u8]>>(&self, buffer: &'a T) -> &'a str {
+        std::str::from_utf8(&buffer.as_ref()[self.name_start..self.name_end]).unwrap()
     }
 
-    pub fn value<'a>(&self, buffer: &'a Bytes) -> &'a str {
-        std::str::from_utf8(&buffer[self.value_start..self.value_end]).unwrap()
+    pub fn value<'a, T: AsRef<[u8]>>(&self, buffer: &'a T) -> &'a str {
+        std::str::from_utf8(&buffer.as_ref()[self.value_start..self.value_end]).unwrap()
     }
 }
 
