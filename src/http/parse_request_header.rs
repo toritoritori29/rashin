@@ -23,49 +23,18 @@ pub fn parse_http_request_header<'a>(
 
     loop {
         let result = match state {
-            RequestHeaderState::Start => {
-                let result = parse_start(&mut cursor, field);
-                if let ParseResult::Ok(next_state) = &result {
-                    state = next_state.clone();
-                }
-                result
-            }
-            RequestHeaderState::FieldName => {
-                let result = parse_name(&mut cursor, field);
-                if let ParseResult::Ok(next_state) = &result {
-                    state = next_state.clone();
-                }
-                result
-            }
-            RequestHeaderState::OWS1 => {
-                let result = parse_ows_before_value(&mut cursor, field);
-                if let ParseResult::Ok(next_state) = &result {
-                    state = next_state.clone();
-                }
-                result
-            }
-            RequestHeaderState::FieldValue => {
-                let result = parse_field_value(&mut cursor, field);
-                if let ParseResult::Ok(next_state) = &result {
-                    state = next_state.clone();
-                }
-                result
-            }
-            RequestHeaderState::OWS2 => {
-                let result = parse_ows_after_value(&mut cursor, field);
-                if let ParseResult::Ok(next_state) = &result {
-                    state = next_state.clone();
-                }
-                result
-            }
-            RequestHeaderState::End => {
-                let result = parse_ows_after_value(&mut cursor, field);
-                result
-            }
+            RequestHeaderState::Start => parse_start(&mut cursor, field),
+            RequestHeaderState::FieldName => parse_name(&mut cursor, field),
+            RequestHeaderState::OWS1 => parse_ows_before_value(&mut cursor, field),
+            RequestHeaderState::FieldValue => parse_field_value(&mut cursor, field),
+            RequestHeaderState::OWS2 => parse_ows_after_value(&mut cursor, field),
+            RequestHeaderState::End => parse_ows_after_value(&mut cursor, field),
         };
 
         match result {
-            ParseResult::Ok(_) => continue,
+            ParseResult::Ok(next_state) => {
+                state = next_state.clone();
+            }
             ParseResult::Again => return ParseResult::Again,
             ParseResult::Complete => return ParseResult::Complete,
             ParseResult::Error => return ParseResult::Error,
