@@ -15,20 +15,20 @@ pub enum RequestHeaderState {
 }
 
 pub fn parse_http_request_header<'a>(
-    buf: &'a Bytes,
+    cursor: &'a mut Cursor<&Bytes>,
     field: &mut Field,
 ) -> ParseResult<RequestHeaderState> {
-    let mut cursor = Cursor::new(buf);
+    // let mut cursor = Cursor::new(buf);
     let mut state = RequestHeaderState::Start;
 
     loop {
         let result = match state {
-            RequestHeaderState::Start => parse_start(&mut cursor, field),
-            RequestHeaderState::FieldName => parse_name(&mut cursor, field),
-            RequestHeaderState::OWS1 => parse_ows_before_value(&mut cursor, field),
-            RequestHeaderState::FieldValue => parse_field_value(&mut cursor, field),
-            RequestHeaderState::OWS2 => parse_ows_after_value(&mut cursor, field),
-            RequestHeaderState::End => parse_ows_after_value(&mut cursor, field),
+            RequestHeaderState::Start => parse_start(cursor, field),
+            RequestHeaderState::FieldName => parse_name(cursor, field),
+            RequestHeaderState::OWS1 => parse_ows_before_value(cursor, field),
+            RequestHeaderState::FieldValue => parse_field_value(cursor, field),
+            RequestHeaderState::OWS2 => parse_ows_after_value(cursor, field),
+            RequestHeaderState::End => parse_ows_after_value(cursor, field),
         };
 
         match result {
@@ -141,7 +141,6 @@ fn parse_field_value(
                     field.value_end = cursor.position() as usize - 1;
                     return ParseResult::Complete;
                 }
-                return ParseResult::Ok(RequestHeaderState::FieldValue);
             }
             ReadResult::Again => {
                 return ParseResult::Again;
@@ -211,7 +210,8 @@ mod tests {
     fn parse_host_header_successfully() {
         let mut field = Field::new();
         let buf = Bytes::from("Host: localhost:8080\r\n");
-        let result = parse_http_request_header(&buf, &mut field);
+        let mut cursor = Cursor::new(&buf);
+        let result = parse_http_request_header(&mut cursor, &mut field);
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(field.name(&buf), "Host");
         assert_eq!(field.value(&buf), "localhost:8080");
@@ -221,7 +221,9 @@ mod tests {
     fn parse_header_with_ows_successfully() {
         let mut field = Field::new();
         let buf = Bytes::from("Host:     localhost:8080      \r\n");
-        let result = parse_http_request_header(&buf, &mut field);
+        let mut cursor = Cursor::new(&buf);
+        let result = parse_http_request_header(&mut cursor, &mut field);
+ 
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(field.name(&buf), "Host");
         assert_eq!(field.value(&buf), "localhost:8080");
@@ -231,17 +233,36 @@ mod tests {
     fn parse_header_end_with_lf_successfully() {
         let mut field = Field::new();
         let buf = Bytes::from("Host: localhost:8080\n");
-        let result = parse_http_request_header(&buf, &mut field);
+        let mut cursor = &mut Cursor::new(&buf);
+        let result = parse_http_request_header(&mut cursor, &mut field);
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(field.name(&buf), "Host");
         assert_eq!(field.value(&buf), "localhost:8080");
     }
 
     #[test]
+    fn parse_consecutive_headers_successfully() {
+        let mut field = Field::new();
+        let mut buf = Bytes::from("Host: localhost:8080\r\nContentType: text-html\r\n");
+        let mut cursor = Cursor::new(&buf);
+
+        let result1 = parse_http_request_header(&mut cursor, &mut field);
+        assert!(matches!(result1, ParseResult::Complete));
+        assert_eq!(field.name(&buf), "Host");
+        assert_eq!(field.value(&buf), "localhost:8080");
+
+        let result2 = parse_http_request_header(&mut cursor, &mut field);
+        assert!(matches!(result2, ParseResult::Complete));
+        assert_eq!(field.name(&buf), "ContentType");
+        assert_eq!(field.value(&buf), "text-html");
+    }
+
+    #[test]
     fn parse_empty_line_crlf() {
         let mut field = Field::new();
         let buf = Bytes::from("\r\n");
-        let result = parse_http_request_header(&buf, &mut field);
+        let mut cursor = Cursor::new(&buf);
+        let result = parse_http_request_header(&mut cursor, &mut field);
         assert!(field.is_separator);
         assert!(matches!(result, ParseResult::Complete));
     }
@@ -250,7 +271,8 @@ mod tests {
     fn parse_empty_line_lf() {
         let mut field = Field::new();
         let buf = Bytes::from("\n");
-        let result = parse_http_request_header(&buf, &mut field);
+        let mut cursor = Cursor::new(&buf);
+        let result = parse_http_request_header(&mut cursor, &mut field);
         assert!(field.is_separator);
         assert!(matches!(result, ParseResult::Complete));
     }
