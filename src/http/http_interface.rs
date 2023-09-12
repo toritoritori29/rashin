@@ -26,16 +26,16 @@ impl HTTPHeader {
         }
     }
 
-    pub fn method<'a>(&self, buffer: &'a Bytes) -> &'a str {
-        std::str::from_utf8(&buffer[self.method_start..self.method_end]).unwrap()
+    pub fn method<'a, T: AsRef<[u8]>>(&self, buffer: &'a T) -> &'a str {
+        std::str::from_utf8(&buffer.as_ref()[self.method_start..self.method_end]).unwrap()
     }
 
-    pub fn path<'a>(&self, buffer: &'a Bytes) -> &'a str {
-        std::str::from_utf8(&buffer[self.path_start..self.path_end]).unwrap()
+    pub fn path<'a, T: AsRef<[u8]>>(&self, buffer: &'a T) -> &'a str {
+        std::str::from_utf8(&buffer.as_ref()[self.path_start..self.path_end]).unwrap()
     }
 
-    pub fn protocol<'a>(&self, buffer: &'a Bytes) -> &'a str {
-        std::str::from_utf8(&buffer[self.protocol_start..self.protocol_end]).unwrap()
+    pub fn protocol<'a, T: AsRef<[u8]>>(&self, buffer: &'a T) -> &'a str {
+        std::str::from_utf8(&buffer.as_ref()[self.protocol_start..self.protocol_end]).unwrap()
     }
 }
 

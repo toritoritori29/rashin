@@ -80,10 +80,12 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
             }
         };
 
+        // TODO: We should not copy the buffer.
         let mut header = HTTPHeader::new();
         let buffer = Bytes::copy_from_slice(&connection.buf);
+        let mut cursor = std::io::Cursor::new(&buffer);
 
-        let result = parse_http_request_line(&buffer, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         if let ParseResult::Complete = result {
             println!("Method: {}", header.method(&buffer));
             println!("Path: {}", header.path(&buffer));

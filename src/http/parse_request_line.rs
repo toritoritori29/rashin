@@ -19,44 +19,43 @@ pub enum RequestLineState {
 /// TODO: read周りが冗長なのでユーティリティ関数を作る
 /// TODO: HTTP1.1しかパースできないのでもう少し汎用的にする
 /// TODO: パスの中身をしっかり検証していない
-pub fn parse_http_request_line<'a>(
-    buf: &'a Bytes,
+pub fn parse_http_request_line<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     header: &mut HTTPHeader,
 ) -> ParseResult<RequestLineState> {
-    let mut cursor = Cursor::new(buf);
     let mut state = RequestLineState::Start;
     loop {
         let result = match state {
             RequestLineState::Start => {
-                let result = parse_start(&mut cursor, header);
+                let result = parse_start(cursor, header);
                 if let ParseResult::Ok(next_state) = &result {
                     state = next_state.clone();
                 }
                 result
             }
             RequestLineState::Method => {
-                let result = parse_method(&mut cursor, header);
+                let result = parse_method(cursor, header);
                 if let ParseResult::Ok(next_state) = &result {
                     state = next_state.clone();
                 }
                 result
             }
             RequestLineState::Path => {
-                let result = parse_path(&mut cursor, header);
+                let result = parse_path(cursor, header);
                 if let ParseResult::Ok(next_state) = &result {
                     state = next_state.clone();
                 }
                 result
             }
             RequestLineState::Protocol => {
-                let result = parse_protocol(&mut cursor, header);
+                let result = parse_protocol(cursor, header);
                 if let ParseResult::Ok(next_state) = &result {
                     state = next_state.clone();
                 }
                 result
             }
             RequestLineState::End => {
-                let result = parse_end(&mut cursor, header);
+                let result = parse_end(cursor, header);
                 result
             }
         };
@@ -78,8 +77,8 @@ pub fn parse_http_request_line<'a>(
     }
 }
 
-fn parse_start(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_start<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     header: &mut HTTPHeader,
 ) -> ParseResult<RequestLineState> {
     loop {
@@ -100,8 +99,8 @@ fn parse_start(
     }
 }
 
-fn parse_method(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_method<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     header: &mut HTTPHeader,
 ) -> ParseResult<RequestLineState> {
     loop {
@@ -123,8 +122,8 @@ fn parse_method(
     }
 }
 
-fn parse_path(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_path<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     header: &mut HTTPHeader,
 ) -> ParseResult<RequestLineState> {
     loop {
@@ -149,8 +148,8 @@ fn parse_path(
     }
 }
 
-fn parse_protocol(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_protocol<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     header: &mut HTTPHeader,
 ) -> ParseResult<RequestLineState> {
     loop {
@@ -218,8 +217,8 @@ fn parse_protocol(
 }
 
 /// CR LF またｈは LF で終わることを確認する
-fn parse_end(
-    cursor: &mut Cursor<&Bytes>,
+fn parse_end<T: AsRef<[u8]>>(
+    cursor: &mut Cursor<T>,
     header: &mut HTTPHeader,
 ) -> ParseResult<RequestLineState> {
     let read_result = read_byte(cursor);
@@ -261,8 +260,9 @@ mod tests {
     #[test]
     fn get_request_for_root() {
         let buf = Bytes::from("GET / HTTP/1.1\r\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(header.method(&buf), "GET");
         assert_eq!(header.path(&buf), "/");
@@ -272,8 +272,9 @@ mod tests {
     #[test]
     fn get_request_for_index_html() {
         let buf = Bytes::from("GET /index.html HTTP/1.1\r\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(header.method(&buf), "GET");
         assert_eq!(header.path(&buf), "/index.html");
@@ -283,8 +284,9 @@ mod tests {
     #[test]
     fn get_request_for_root_lf() {
         let buf = Bytes::from("GET / HTTP/1.1\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(header.method(&buf), "GET");
         assert_eq!(header.path(&buf), "/");
@@ -294,8 +296,9 @@ mod tests {
     #[test]
     fn get_request_for_root_with_head_crlf() {
         let buf = Bytes::from("\r\n\rGET / HTTP/1.1\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Complete));
         assert_eq!(header.method(&buf), "GET");
         assert_eq!(header.path(&buf), "/");
@@ -305,32 +308,36 @@ mod tests {
     #[test]
     fn invalid_space_request_should_failed() {
         let buf = Bytes::from("GET   /   HTTP/1.1\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Error));
     }
 
     #[test]
     fn no_path_request_should_failed() {
         let buf = Bytes::from("GET HTTP/1.1\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Error));
     }
 
     #[test]
     fn unknown_protocol_should_failed() {
         let buf = Bytes::from("GET / SMTP/1.1\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Error));
     }
 
     #[test]
     fn unnecessary_suffix_should_failed() {
         let buf = Bytes::from("GET / HTTP/1.1xxx\n");
+        let mut cursor = Cursor::new(&buf);
         let mut header = HTTPHeader::new();
-        let result = parse_http_request_line(&buf, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header);
         assert!(matches!(result, ParseResult::Error));
     }
 }

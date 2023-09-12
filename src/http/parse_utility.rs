@@ -6,9 +6,9 @@ pub enum ReadResult {
     Err,
 }
 
-pub fn read_byte<T: AsRef<[u8]>>(buf: &mut Cursor<T>) -> ReadResult {
+pub fn read_byte<T: AsRef<[u8]>>(cursor: &mut Cursor<T>) -> ReadResult {
     let mut b = [0; 1];
-    let size = buf.read(&mut b);
+    let size = cursor.read(&mut b);
 
     match size {
         Ok(0) => ReadResult::Again,
