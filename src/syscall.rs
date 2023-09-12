@@ -83,7 +83,6 @@ pub fn accept(fd: i32, addr: &mut libc::sockaddr) -> Result<i32, RashinErr> {
     let mut addr_size = mem::size_of::<libc::sockaddr>() as u32;
     let accept_fd = unsafe { libc::accept(fd, addr, &mut addr_size) };
     if accept_fd == -1 {
-        println!("`accept` fails with errno {}.", errno());
         return Err(RashinErr::SyscallError(errno()));
     }
     Ok(accept_fd)

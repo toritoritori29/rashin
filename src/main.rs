@@ -96,7 +96,6 @@ fn main() {
                     let accept_fd = match syscall::accept(listener_fd, &mut addr) {
                         Ok(fd) => fd,
                         Err(RashinErr::SyscallError(libc::EAGAIN)) => {
-                            println!("No connection request");
                             break;
                         }
                         Err(e) => {
