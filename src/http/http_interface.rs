@@ -37,6 +37,11 @@ impl HTTPHeader {
     pub fn protocol<'a, T: AsRef<[u8]>>(&self, buffer: &'a T) -> &'a str {
         std::str::from_utf8(&buffer.as_ref()[self.protocol_start..self.protocol_end]).unwrap()
     }
+
+    pub fn add_field(&mut self, field: Field) {
+        self.fields.push(field);
+        self.field_size += 1;
+    }
 }
 
 pub struct Field {

@@ -1,10 +1,10 @@
-use bytes::Bytes;
 /// Core.rs
 /// このモジュールではrashinの基本的な構造体の定義と, イベントハンドラの定義を行う
 use std::os::fd::RawFd;
 
 use crate::error::RashinErr;
-use crate::http::http_interface::{HTTPHeader, ParseResult};
+use crate::http::http_interface::{Field, HTTPHeader, ParseResult};
+use crate::http::parse_request_header::parse_http_request_header;
 use crate::http::parse_request_line::parse_http_request_line;
 use crate::syscall;
 
@@ -82,16 +82,47 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
 
         // TODO: We should not copy the buffer.
         let mut header = HTTPHeader::new();
-        let buffer = Bytes::copy_from_slice(&connection.buf);
-        let mut cursor = std::io::Cursor::new(&buffer);
+        let mut cursor = std::io::Cursor::new(&connection.buf);
 
         let result = parse_http_request_line(&mut cursor, &mut header);
         if let ParseResult::Complete = result {
-            println!("Method: {}", header.method(&buffer));
-            println!("Path: {}", header.path(&buffer));
-            println!("Protocol: {}", header.protocol(&buffer));
+            println!("Method: {}", header.method(&connection.buf));
+            println!("Path: {}", header.path(&connection.buf));
+            println!("Protocol: {}", header.protocol(&connection.buf));
         } else {
             println!("Parse Error");
+        }
+
+        loop {
+            let mut field = Field::new();
+            let result = parse_http_request_header(&mut cursor, &mut field);
+
+            if field.is_separator {
+                println!("Separator");
+                break;
+            }
+
+            match result {
+                ParseResult::Complete => {
+                    println!(
+                        "Field: {} = {}",
+                        field.name(&connection.buf),
+                        field.value(&connection.buf)
+                    );
+                }
+                ParseResult::Error => {
+                    println!("Parse Error");
+                    break;
+                }
+                ParseResult::Again => {
+                    println!("Again");
+                    break;
+                }
+                _ => {
+                    println!("Complete");
+                    break;
+                }
+            }
         }
 
         // Process Write Event

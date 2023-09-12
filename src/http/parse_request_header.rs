@@ -18,7 +18,6 @@ pub fn parse_http_request_header<'a, T: AsRef<[u8]>>(
     cursor: &'a mut Cursor<T>,
     field: &mut Field,
 ) -> ParseResult<RequestHeaderState> {
-    // let mut cursor = Cursor::new(buf);
     let mut state = RequestHeaderState::Start;
 
     loop {

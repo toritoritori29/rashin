@@ -6,8 +6,8 @@ mod parse_utility;
 #[cfg(test)]
 mod parse_http_header {
     use super::http_interface::*;
-    use super::parse_request_line::*;
     use super::parse_request_header::*;
+    use super::parse_request_line::*;
     use std::io::Cursor;
 
     #[test]
@@ -15,7 +15,9 @@ mod parse_http_header {
         let buf = "\
         GET / HTTP/1.1\r\n\
         Host: localhost:8080\r\n\
-        ".as_bytes().to_vec();
+        "
+        .as_bytes()
+        .to_vec();
         let mut cursor = Cursor::new(&buf);
 
         let mut http_header = HTTPHeader::new();
