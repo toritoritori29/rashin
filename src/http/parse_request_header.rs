@@ -1,8 +1,7 @@
-use bytes::Bytes;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
-use super::http_interface::{Field, ParseResult};
-use super::parse_utility::{read_byte, ReadResult};
+use super::http_interface::{Field, ParseResult, HTTPHeader};
+use super::parse_utility::{is_tchar, is_vchar, read_byte, ReadResult};
 
 #[derive(Clone, Debug)]
 pub enum RequestHeaderState {
@@ -42,6 +41,8 @@ pub fn parse_http_request_header<'a, T: AsRef<[u8]>>(
 }
 
 /// ヘッダー行の冒頭を読み込む。
+/// * 読み込んだ文字が有効なfield-nameの文字であればfield-nameのパースに遷移する。
+///
 fn parse_start<T: AsRef<[u8]>>(
     cursor: &mut Cursor<T>,
     field: &mut Field,
@@ -57,7 +58,7 @@ fn parse_start<T: AsRef<[u8]>>(
             return ParseResult::Complete;
         }
         ReadResult::Ok(c) => {
-            if !c.is_ascii_alphanumeric() {
+            if !is_tchar(c) {
                 return ParseResult::Error;
             }
             field.name_start = cursor.position() as usize - 1;
@@ -85,7 +86,7 @@ fn parse_name<T: AsRef<[u8]>>(
                 return ParseResult::Ok(RequestHeaderState::OWS1);
             }
             ReadResult::Ok(c) => {
-                if !c.is_ascii_alphanumeric() {
+                if !is_tchar(c) {
                     return ParseResult::Error;
                 }
             }
@@ -110,7 +111,7 @@ fn parse_ows_before_value<T: AsRef<[u8]>>(
                 continue;
             }
             ReadResult::Ok(c) => {
-                if !c.is_ascii_alphanumeric() {
+                if !is_vchar(c) {
                     return ParseResult::Error;
                 }
                 field.value_start = cursor.position() as usize - 1;
@@ -126,25 +127,44 @@ fn parse_ows_before_value<T: AsRef<[u8]>>(
     }
 }
 
+/// field-valueをパースする。
+/// field-valueはRFC9110において以下のように定義されている。
+///
+/// field-content = field-vchar [ 1*( SP / HTAB / field-vchar ) field-vchar ]
+/// field-vchar = VCHAR / obs-text
+/// ただしvcharはSection2.1に記載のある表示可能な文字である。
+/// 
+/// References:
+/// https://www.rfc-editor.org/rfc/rfc9110#name-syntax-notation
 fn parse_field_value<T: AsRef<[u8]>>(
     cursor: &mut Cursor<T>,
     field: &mut Field,
 ) -> ParseResult<RequestHeaderState> {
+    let mut prev_ws = false;
     loop {
         let read_result = read_byte(cursor);
         match read_result {
-            ReadResult::Ok(c) => {
-                if c == b' ' {
-                    field.value_end = cursor.position() as usize - 1;
+            ReadResult::Ok(b'\r') => {
+                field.value_end = cursor.position() as usize - 1;
+                return ParseResult::Ok(RequestHeaderState::End);
+            }
+            ReadResult::Ok(b'\n') => {
+                field.value_end = cursor.position() as usize - 1;
+                return ParseResult::Complete;
+            }
+            ReadResult::Ok(b' ') | ReadResult::Ok(b'\t') => {
+                if prev_ws {
                     return ParseResult::Ok(RequestHeaderState::OWS2);
-                }
-                if c == b'\r' {
+                } else {
                     field.value_end = cursor.position() as usize - 1;
-                    return ParseResult::Ok(RequestHeaderState::End);
+                    prev_ws = true;
                 }
-                if c == b'\n' {
-                    field.value_end = cursor.position() as usize - 1;
-                    return ParseResult::Complete;
+            }
+            ReadResult::Ok(c) => {
+                if is_vchar(c) {
+                    prev_ws = false;
+                } else {
+                    return ParseResult::Error;
                 }
             }
             ReadResult::Again => {
@@ -210,9 +230,22 @@ fn parse_end_lf<T: AsRef<[u8]>>(
     };
 }
 
+
+pub fn process_reserved_header(http_header: &mut HTTPHeader, field_name: &str, field_value: &str) {
+    match field_name {
+        _ => {
+            println!(
+                "Field: {} = {}", field_name, field_value
+            );
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
 
     #[test]
     fn parse_host_header_successfully() {
@@ -300,3 +333,4 @@ mod tests {
         assert!(matches!(result, ParseResult::Complete));
     }
 }
+

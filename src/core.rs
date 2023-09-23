@@ -4,7 +4,7 @@ use std::os::fd::RawFd;
 
 use crate::error::RashinErr;
 use crate::http::http_interface::{Field, HTTPHeader, ParseResult};
-use crate::http::parse_request_header::parse_http_request_header;
+use crate::http::parse_request_header::{parse_http_request_header, process_reserved_header};
 use crate::http::parse_request_line::parse_http_request_line;
 use crate::syscall;
 
@@ -104,11 +104,7 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
 
             match result {
                 ParseResult::Complete => {
-                    println!(
-                        "Field: {} = {}",
-                        field.name(&connection.buf),
-                        field.value(&connection.buf)
-                    );
+                    process_reserved_header(&mut header, field.name(&connection.buf), field.value(&connection.buf));
                 }
                 ParseResult::Error => {
                     println!("Parse Error");
