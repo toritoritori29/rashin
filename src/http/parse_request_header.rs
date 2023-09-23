@@ -33,7 +33,7 @@ pub fn parse_http_request_header<'a, T: AsRef<[u8]>>(
             ParseResult::Ok(next_state) => {
                 state = next_state.clone();
             }
-            ParseResult::Again => return ParseResult::Again,
+            ParseResult::Again(state) => return ParseResult::Again(state),
             ParseResult::Complete => return ParseResult::Complete,
             ParseResult::Error => return ParseResult::Error,
         }
@@ -65,7 +65,7 @@ fn parse_start<T: AsRef<[u8]>>(
             return ParseResult::Ok(RequestHeaderState::FieldName);
         }
         ReadResult::Again => {
-            return ParseResult::Again;
+            return ParseResult::Again(RequestHeaderState::Start);
         }
         ReadResult::Err => {
             return ParseResult::Error;
@@ -91,7 +91,7 @@ fn parse_name<T: AsRef<[u8]>>(
                 }
             }
             ReadResult::Again => {
-                return ParseResult::Again;
+                return ParseResult::Again(RequestHeaderState::FieldName);
             }
             ReadResult::Err => {
                 return ParseResult::Error;
@@ -118,7 +118,7 @@ fn parse_ows_before_value<T: AsRef<[u8]>>(
                 return ParseResult::Ok(RequestHeaderState::FieldValue);
             }
             ReadResult::Again => {
-                return ParseResult::Again;
+                return ParseResult::Again(RequestHeaderState::OWS1);
             }
             ReadResult::Err => {
                 return ParseResult::Error;
@@ -168,7 +168,7 @@ fn parse_field_value<T: AsRef<[u8]>>(
                 }
             }
             ReadResult::Again => {
-                return ParseResult::Again;
+                return ParseResult::Again(RequestHeaderState::FieldValue);
             }
             ReadResult::Err => {
                 return ParseResult::Error;
@@ -200,7 +200,7 @@ fn parse_ows_after_value<T: AsRef<[u8]>>(
                 return ParseResult::Error;
             }
             ReadResult::Again => {
-                return ParseResult::Again;
+                return ParseResult::Again(RequestHeaderState::OWS2);
             }
             ReadResult::Err => {
                 return ParseResult::Error;
@@ -222,7 +222,7 @@ fn parse_end_lf<T: AsRef<[u8]>>(
             return ParseResult::Error;
         }
         ReadResult::Again => {
-            return ParseResult::Again;
+            return ParseResult::Again(RequestHeaderState::End);
         }
         ReadResult::Err => {
             return ParseResult::Error;
@@ -234,7 +234,7 @@ fn parse_end_lf<T: AsRef<[u8]>>(
 pub fn process_reserved_header(http_header: &mut HTTPHeader, field_name: &str, field_value: &str) {
     match field_name {
         _ => {
-            println!(
+            log::debug!(
                 "Field: {} = {}", field_name, field_value
             );
         }
@@ -305,12 +305,8 @@ mod tests {
         let mut cursor = Cursor::new(&mut buf);
 
         let result1 = parse_http_request_header(&mut cursor, &mut field);
-        assert!(matches!(result1, ParseResult::Again));
+        assert!(matches!(result1, ParseResult::Again(RequestHeaderState::FieldValue)));
         assert_eq!(field.name(cursor.get_ref()), "Host");
-
-        // cursor.write_all("host:8080\r\n".as_bytes()).unwrap();
-        // let result2 = parse_http_request_header(&mut cursor, &mut field);
-        // assert!(matches!(result2, ParseResult::Complete));
     }
 
     #[test]

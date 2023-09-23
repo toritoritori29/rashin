@@ -22,7 +22,7 @@ mod parse_http_header {
 
         let mut http_header = HTTPHeader::new();
         {
-            let result = parse_http_request_line(&mut cursor, &mut http_header);
+            let result = parse_http_request_line(&mut cursor, &mut http_header, RequestLineState::Start);
             assert!(matches!(result, ParseResult::Complete));
             assert_eq!(http_header.method(&buf), "GET");
         }

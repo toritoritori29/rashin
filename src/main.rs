@@ -83,7 +83,6 @@ fn main() {
 
         for n in 0..events_num {
             let event_fd = events_buffer[n].u64 as fd::RawFd;
-            println!("Event: {}", event_fd);
 
             // Accept incoming connection requests.
             if event_fd == listener_fd {
@@ -103,7 +102,7 @@ fn main() {
                             break;
                         }
                     };
-                    println!(
+                    log::debug!(
                         "Accept connection. Prepare a file descriptor {} for this connection.",
                         &accept_fd
                     );
@@ -129,7 +128,7 @@ fn main() {
 
             // Pop event from the event_map
             let flags = events_buffer[n].events as i32;
-            println!("Flags: {}", flags as i32);
+            println!("Event fired: FD: {}, Flag: {}", event_fd, flags as i32);
 
             // 今のままだとBufferなどもコピーされるのであんまりよくない
             let event_option = event_map.get(&event_fd).cloned();
@@ -148,7 +147,7 @@ fn main() {
                 }
                 (event.handler)(event_fd, &mut event);
                 if let EventState::Shutdown = event.state {
-                    println!("Shutdown");
+                    log::debug!("Shutdown {}", event_fd);
                     syscall::shutdown(event_fd).unwrap();
                     syscall::epoll_ctl(epoll_fd, libc::EPOLL_CTL_DEL, event_fd, None).unwrap();
                     syscall::close(event_fd).unwrap();

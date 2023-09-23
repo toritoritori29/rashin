@@ -5,7 +5,7 @@ use std::os::fd::RawFd;
 use crate::error::RashinErr;
 use crate::http::http_interface::{Field, HTTPHeader, ParseResult};
 use crate::http::parse_request_header::{parse_http_request_header, process_reserved_header};
-use crate::http::parse_request_line::parse_http_request_line;
+use crate::http::parse_request_line::{ parse_http_request_line, RequestLineState};
 use crate::syscall;
 
 #[derive(Clone, Debug)]
@@ -64,6 +64,7 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
     }
 
     if !(event.readable && event.writable) {
+        println!("continue");
         return;
     }
     println!("Get ready to read from {}.", &fd);
@@ -73,6 +74,7 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
             Ok(size) => size as usize,
             Err(RashinErr::SyscallError(libc::EAGAIN)) => {
                 event.readable = false;
+                println!("EAGAIN");
                 return;
             }
             Err(e) => {
@@ -81,14 +83,12 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
         };
 
         let mut header = HTTPHeader::new();
-        println!("{}", String::from_utf8(connection.buf.to_vec()).unwrap());
-
         let mut cursor = std::io::Cursor::new(&connection.buf);
-        let result = parse_http_request_line(&mut cursor, &mut header);
+        let result = parse_http_request_line(&mut cursor, &mut header, RequestLineState::Start);
         if let ParseResult::Complete = result {
-            println!("Method: {}", header.method(&connection.buf));
+            log::debug!("Method: {}", header.method(&connection.buf));
             println!("Path: {}", header.path(&connection.buf));
-            println!("Protocol: {}", header.protocol(&connection.buf));
+            log::debug!("Protocol: {}", header.protocol(&connection.buf));
         } else {
             println!("Parse Error");
         }
@@ -98,7 +98,6 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
             let result = parse_http_request_header(&mut cursor, &mut field);
 
             if field.is_separator {
-                println!("Separator");
                 break;
             }
 
@@ -110,7 +109,7 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
                     println!("Parse Error");
                     break;
                 }
-                ParseResult::Again => {
+                ParseResult::Again(_) => {
                     println!("Again");
                     break;
                 }
@@ -124,7 +123,7 @@ pub fn http_handler(fd: RawFd, event: &mut Event) {
         // Process Write Event
         let send_str = String::from("HTTP/1.1 204 No Content\r\n\r\n");
         let mut send_buf = send_str.clone().into_bytes();
-        println!("Send: {}", &send_str);
+        log::debug!("Send: {}", &send_str);
         syscall::write(fd, &mut send_buf).unwrap();
 
         // Register Write Event

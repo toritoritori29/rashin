@@ -1,4 +1,3 @@
-use bytes::Bytes;
 
 pub struct HTTPHeader {
     pub method_start: usize,
@@ -74,7 +73,7 @@ impl Field {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ParseResult<T> {
-    Again,
+    Again(T),
     Ok(T),
     Complete,
     Error,

@@ -9,8 +9,8 @@ import concurrent.futures
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_server():
-    process = subprocess.Popen("cargo run", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    time.sleep(3)
+    process = subprocess.Popen("RUST_LOG=main=debug cargo run", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(10)
     yield
     # stdoutをノンブロッキングモードにする
     flag = fcntl.fcntl(process.stdout.fileno(), fcntl.F_GETFL)
@@ -27,12 +27,13 @@ def setup_server():
 
 def test_204():
     def test_func(idx):
-        url = "http://localhost:8080/"
+        url = f"http://localhost:8080/{idx}"
         try: 
             resp = requests.get(url, timeout=1)
-            print(idx)
             return resp.status_code == 204
-        except Exception:
+        except Exception as e:
+            print(url)
+            print(e)
             return False
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
